@@ -366,27 +366,32 @@ def start_farm_thread(aid):
 
 
 def seed_accounts():
-    """Add cac acc tu seed_accounts.py neu chua co (dedupe theo phone)"""
+    """Add cac acc tu seed_accounts.py neu chua co (dedupe theo phone). Dung sync client."""
     try:
         from seed_accounts import SEED
     except Exception:
         return
+    from telethon.sync import TelegramClient
+    from telethon.sessions import StringSession
     existing_phones = {a.get("phone") for a in storage.list_accounts()}
     for s in SEED:
         if s.get("phone") in existing_phones:
             continue
         try:
-            import asyncio
-            info = asyncio.new_event_loop().run_until_complete(get_me_async(s["session"]))
+            c = TelegramClient(StringSession(s["session"]), 2040, "b18441a1ff607e10a989891a5462e627")
+            c.connect()
+            if not c.is_user_authorized():
+                storage.log_activity(0, f"seed {s.get('name')} not authorized")
+                c.disconnect(); continue
+            me = c.get_me()
+            info = {"uid": me.id, "name": (me.first_name or "") + (" "+(me.last_name or "") if me.last_name else ""), "username": me.username}
+            c.disconnect()
         except Exception as e:
-            storage.log_activity(0, f"seed {s.get('name')} login fail: {str(e)[:60]}")
-            continue
-        if not info:
-            storage.log_activity(0, f"seed {s.get('name')} session invalid")
+            storage.log_activity(0, f"seed {s.get('name')} fail: {str(e)[:80]}")
             continue
         aid = storage.add_account(s.get("phone") or "?", s["session"], info["uid"],
                                   s.get("name") or info.get("name") or f"acc{info['uid']}")
-        storage.log_activity(aid, f"seed add OK uid={info['uid']}")
+        storage.log_activity(aid, f"seed OK uid={info['uid']}")
 
 def resume_farms():
     for a in storage.list_accounts():
@@ -457,4 +462,5 @@ def build_app():
     app.add_handler(CallbackQueryHandler(set_cb, pattern=r"^set_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     return app
+
 
