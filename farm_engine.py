@@ -40,21 +40,35 @@ WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_L
 
 
 def fetch_initdata_sync(sess):
-    """Sync version - dung trong thread khong co event loop."""
-    from telethon.sync import TelegramClient
+    """Sync wrapper - chay async trong loop rieng, khong dung telethon.sync."""
+    import asyncio
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_fetch_initdata_async(sess))
+        finally:
+            loop.close()
+    except Exception as e:
+        print(f"[fetch_sync] {e}")
+        return None
+
+
+async def _fetch_initdata_async(sess):
+    """Async teleton thuan, khong .sync."""
+    from telethon import TelegramClient
     from telethon.sessions import StringSession
     from telethon.tl import functions
     import urllib.parse, re as _re
     try:
         client = TelegramClient(StringSession(sess), API_ID, API_HASH)
-        client.connect()
+        await client.connect()
         try:
-            if not client.is_user_authorized():
+            if not await client.is_user_authorized():
                 return None
-            bot = client.get_entity(BOT_USER)
+            bot = await client.get_entity(BOT_USER)
             for pl in ("android", "web", "ios"):
                 try:
-                    res = client(functions.messages.RequestWebViewRequest(
+                    res = await client(functions.messages.RequestWebViewRequest(
                         peer=bot, bot=bot, platform=pl, url=BASE, from_bot_menu=False))
                     url = res.url
                     if "#tgWebAppData=" in url:
@@ -68,10 +82,13 @@ def fetch_initdata_sync(sess):
                     pass
             return None
         finally:
-            try: client.disconnect()
+            try: await client.disconnect()
             except: pass
-    except Exception:
+    except Exception as e:
+        print(f"[fetch_async] {e}")
         return None
+
+
 
 async def fetch_initdata(sess):
     from telethon import TelegramClient

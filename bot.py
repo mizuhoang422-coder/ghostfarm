@@ -687,90 +687,64 @@ def resume_workers():
         if a.get("farm_running"): start_worker(a["id"])
 
 def code_watcher_thread():
-    """Listen @ghostfarmx_bot real-time. Code moi -> redeem ngay vao tat ca acc dang farm."""
-    from telethon import events
-    from telethon.sync import TelegramClient
-    from telethon.sessions import StringSession
-
+    """Listen @ghostfarmx_bot real-time."""
+    import asyncio
     def run():
+        # Set event loop cho thread nay
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         time.sleep(15)
-        while not WATCHER["stop"]:
+        while True:
             try:
                 accs = storage.list_accounts()
                 if not accs:
-                    print("[watcher] no acc, wait 60s")
+                    print("[watcher] no acc, wait")
                     time.sleep(60); continue
                 sess = accs[0]["session"]
-                client = TelegramClient(StringSession(sess), 2040,
-                                        "b18441a1ff607e10a989891a5462e627", loop=loop)
+                asyncio.set_event_loop(loop)
+                from telethon import TelegramClient, events
+                from telethon.sessions import StringSession
+                client = TelegramClient(StringSession(sess), 2040, "b18441a1ff607e10a989891a5462e627", loop=loop)
                 client.connect()
                 if not client.is_user_authorized():
-                    print("[watcher] session dead, wait 120s")
+                    print("[watcher] session dead")
                     client.disconnect(); time.sleep(120); continue
-
                 bot = client.get_entity("ghostfarmx_bot")
-                print(f"[watcher] connected, listening @{bot.username}")
+                print("[watcher] connected")
 
-                # 1. backfill - quet toan bo history
-                async def scan():
-                    total = 0
-                    codes_found = []
-                    async for msg in client.iter_messages(bot):
-                        total += 1
-                        if not msg.text: continue
-                        for code in CODE_RE.findall(msg.text):
-                            if code not in codes_found:
-                                codes_found.append(code)
-                    print(f"[watcher] backfill: {total} msg, {len(codes_found)} code unique: {codes_found}")
-                    for code in codes_found:
-                        # kiem tra co acc nao chua dung khong
-                        needs = [a for a in storage.list_accounts()
-                                 if not storage.is_code_used(code, a["id"])]
-                        if needs:
-                            print(f"[watcher] backfill redeem {code} -> {len(needs)} acc")
-                            process_code(code)
-
-                try:
-                    loop.run_until_complete(scan())
-                except Exception as e:
-                    print(f"[watcher] scan err: {e}")
-
-                # 2. listen real-time
-                @client.on(events.NewMessage(chats=bot))
-                async def on_new_msg(ev):
-                    txt = ev.message.text or ""
-                    if not txt:
-                        # kiem tra caption (anh co code)
-                        txt = getattr(ev.message, "message", "") or ""
-                    codes = CODE_RE.findall(txt)
-                    if not codes:
-                        return
-                    print(f"[watcher] 🔔 NEW message, codes={codes}")
-                    for code in codes:
-                        print(f"[watcher] processing {code}...")
+                # Backfill
+                total = 0
+                codes_found = []
+                for msg in client.iter_messages(bot):
+                    total += 1
+                    if not msg.text: continue
+                    for code in CODE_RE.findall(msg.text):
+                        if code not in codes_found:
+                            codes_found.append(code)
+                print(f"[watcher] backfill: {total} msg, {len(codes_found)} codes: {codes_found}")
+                for code in codes_found:
+                    needs = [a for a in storage.list_accounts() if not storage.is_code_used(code, a["id"])]
+                    if needs:
                         process_code(code)
 
-                @client.on(events.MessageEdited(chats=bot))
-                async def on_edit(ev):
-                    txt = ev.message.text or ""
-                    codes = CODE_RE.findall(txt)
-                    if codes:
-                        print(f"[watcher] ✏️ edited message, codes={codes}")
-                        for code in codes:
-                            process_code(code)
+                # Listen
+                @client.on(events.NewMessage(chats=bot))
+                async def on_msg(ev):
+                    for code in CODE_RE.findall(ev.message.text or ""):
+                        print(f"[watcher] NEW {code}")
+                        process_code(code)
 
-                print("[watcher] listening real-time...")
+                print("[watcher] listening...")
                 loop.run_until_complete(client.disconnected)
-                print("[watcher] disconnected, reconnect...")
-                try: client.disconnect()
-                except: pass
+                client.disconnect()
             except Exception as e:
-                print(f"[watcher] outer err: {e}")
+                print(f"[watcher] err: {e}")
                 time.sleep(60)
-
+    import threading
     threading.Thread(target=run, daemon=True).start()
+
+
+
 
 def process_code(code):
     """Redeem 1 code vao tat ca acc dang bat farm."""
@@ -813,27 +787,48 @@ def process_code(code):
 
 
 def seed_accounts():
+    """Add cac acc tu seed_accounts.py va fetch initData luon."""
     try:
         from seed_accounts import SEED
     except Exception:
         return
-    from telethon.sync import TelegramClient
-    from telethon.sessions import StringSession
-    from telethon.tl import functions
-    existing = {a.get("phone") for a in storage.list_accounts()}
+    existing_phones = {a.get("phone") for a in storage.list_accounts()}
     for s in SEED:
-        if s.get("phone") in existing: continue
+        if s.get("phone") in existing_phones:
+            continue
         try:
+            from telethon.sync import TelegramClient
+            from telethon.sessions import StringSession
             c = TelegramClient(StringSession(s["session"]), 2040, "b18441a1ff607e10a989891a5462e627")
             c.connect()
             if not c.is_user_authorized():
+                print(f"[seed] {s.get('name')} not authorized")
                 c.disconnect(); continue
             me = c.get_me()
             c.disconnect()
-            aid = storage.add_account(s["name"], s["phone"], s["session"], me.id)
-            if aid: storage.log_activity(aid, f"seed uid={me.id}")
+            aid = storage.add_account(
+                s.get("name") or f"acc{me.id}",
+                s.get("phone") or "?",
+                s["session"],
+                me.id
+            )
+            print(f"[seed] {s.get('name')} added id={aid} uid={me.id}")
+            # Fetch initData luon
+            try:
+                idata = fetch_initdata_sync(s["session"])
+                if idata:
+                    storage.update_account(aid, init_data=idata, init_ts=int(time.time()))
+                    print(f"[seed] {s.get('name')} initData OK ({len(idata)})")
+                    # Auto enable farm
+                    storage.update_account(aid, farm_running=1)
+                else:
+                    print(f"[seed] {s.get('name')} initData fail")
+            except Exception as e:
+                print(f"[seed] {s.get('name')} initData err: {e}")
         except Exception as e:
-            print(f"[seed] {s.get('name')}: {e}")
+            print(f"[seed] {s.get('name')} err: {e}")
+
+
 
 
 def scan_history_once():

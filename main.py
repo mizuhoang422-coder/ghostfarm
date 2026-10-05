@@ -15,6 +15,13 @@ if __name__ == "__main__":
     seed_accounts()
     resume_workers()
     code_watcher_thread()
-    threading.Thread(target=lambda: (time.sleep(20), __import__('bot').scan_history_once()), daemon=True).start()
+    def _delayed_scan():
+        time.sleep(30)
+        try:
+            import scan_once
+            scan_once.run()
+        except Exception as e:
+            print(f"[scan boot] {e}")
+    threading.Thread(target=_delayed_scan, daemon=True).start()
     app.run_polling(allowed_updates=["message","callback_query"], drop_pending_updates=True)
 
