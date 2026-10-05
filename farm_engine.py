@@ -188,8 +188,9 @@ class GF:
                 if s2 != 200: break
                 time.sleep(0.5)
         return self.harvest(idx)
-    def try_plant(self, idx):
-        for crop in CROPS:
+    def try_plant(self, idx, allowed_crops=None):
+        crops = allowed_crops if allowed_crops else CROPS
+        for crop in crops:
             s, j = self.post("/farm/plant", {"idx": idx, "crop": crop})
             code = (j or {}).get("code", "")
             if s == 200: return crop
@@ -220,7 +221,7 @@ class GF:
         return False, "claim fail"
 
 
-def farm_tick(gf, cfg, aid=None):
+def farm_tick(gf, cfg, aid=None, allowed_crops=None):
     stats = {"planted":0,"watered":0,"harvested":0,"earned_gems":0}
     f = gf.farm_state(); plots = f.get("plots") or []
     now = int(time.time()*1000)
@@ -300,4 +301,5 @@ def task_tick(gf, cfg, aid=None):
             stats["claims"] += 1; stats["reward"] += (j or {}).get("reward", 0)
         time.sleep(0.5)
     return stats
+
 

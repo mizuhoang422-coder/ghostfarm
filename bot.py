@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
 from ad_watcher import watch_one_ad
-from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE,
+from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE, CROPS,
                          get_me_from_session, otp_send_code, otp_sign_in, otp_sign_in_2fa)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -33,6 +33,9 @@ def kb_main(uid=None):
     rows.append([
         InlineKeyboardButton("▶️ Bật farm tất cả", callback_data="start_all"),
         InlineKeyboardButton("⏹ Tắt farm tất cả", callback_data="stop_all"),
+    ])
+    rows.append([
+        InlineKeyboardButton("🌾 Chọn cây tất cả acc", callback_data="crop_bulk"),
     ])
     rows.append([
         InlineKeyboardButton("🔄 Làm mới tất cả", callback_data="rf_all"),
@@ -137,6 +140,103 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         aid = int(data.split(":")[1])
         await q.edit_message_text(panel_text(aid), parse_mode="HTML",
                                    reply_markup=kb_panel(aid, storage.get_account(aid)))
+        return
+
+    if data.startswith("crop:"):
+        aid = int(data.split(":")[1])
+        await q.edit_message_text(crop_text(aid), parse_mode="HTML",
+                                  reply_markup=kb_crop(aid))
+        return
+
+    if data.startswith("crop_tog:"):
+        _, aid_s, crop = data.split(":")
+        aid = int(aid_s)
+        allowed = storage.get_crop_pref(aid)
+        if allowed is None: allowed = list(CROPS)
+        if crop in allowed:
+            allowed.remove(crop)
+        else:
+            allowed.append(crop)
+        storage.set_crop_pref(aid, allowed)
+        await q.edit_message_text(crop_text(aid), parse_mode="HTML",
+                                  reply_markup=kb_crop(aid))
+        return
+
+    if data.startswith("crop_all:"):
+        aid = int(data.split(":")[1])
+        storage.set_crop_pref(aid, list(CROPS))
+        await q.edit_message_text(crop_text(aid), parse_mode="HTML",
+                                  reply_markup=kb_crop(aid))
+        return
+
+    if data.startswith("crop_none:"):
+        aid = int(data.split(":")[1])
+        storage.set_crop_pref(aid, [])
+        await q.edit_message_text(crop_text(aid), parse_mode="HTML",
+                                  reply_markup=kb_crop(aid))
+        return
+
+    if data == "crop_bulk":
+        # chon crop cho tat ca acc cung luc
+        rows = []
+        line = []
+        # dung acc dau tien lam mau
+        accs = storage.list_accounts()
+        if not accs:
+            await q.edit_message_text("Chưa có acc."); return
+        # lay pref acc dau tien
+        allowed = storage.get_crop_pref(accs[0]["id"])
+        if allowed is None: allowed = list(CROPS)
+        for crop in CROPS:
+            mark = "✅" if crop in allowed else "⬜"
+            line.append(InlineKeyboardButton(f"{mark}{CROP_EMOJI.get(crop,'🌱')} {crop}", callback_data=f"crop_bulk_tog:{crop}"))
+            if len(line) == 2:
+                rows.append(line); line = []
+        if line: rows.append(line)
+        rows.append([InlineKeyboardButton("✅ Chọn tất cả", callback_data="crop_bulk_all"),
+                     InlineKeyboardButton("❌ Bỏ hết", callback_data="crop_bulk_none")])
+        rows.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")])
+        await q.edit_message_text(
+            "🌾 <b>CHỌN CÂY CHO TẤT CẢ ACC</b>\nBot sẽ set cùng 1 loại cho mọi acc.",
+            parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+        return
+
+    if data.startswith("crop_bulk_tog:"):
+        crop = data.split(":")[1]
+        accs = storage.list_accounts()
+        if not accs: return
+        cur = storage.get_crop_pref(accs[0]["id"]) or list(CROPS)
+        if crop in cur: cur.remove(crop)
+        else: cur.append(crop)
+        for a in accs:
+            storage.set_crop_pref(a["id"], cur)
+        # re-render
+        rows = []
+        line = []
+        for c in CROPS:
+            mark = "✅" if c in cur else "⬜"
+            line.append(InlineKeyboardButton(f"{mark}{CROP_EMOJI.get(c,'🌱')} {c}", callback_data=f"crop_bulk_tog:{c}"))
+            if len(line) == 2:
+                rows.append(line); line = []
+        if line: rows.append(line)
+        rows.append([InlineKeyboardButton("✅ Chọn tất cả", callback_data="crop_bulk_all"),
+                     InlineKeyboardButton("❌ Bỏ hết", callback_data="crop_bulk_none")])
+        rows.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")])
+        await q.edit_message_text(
+            f"🌾 <b>CHỌN CÂY CHO TẤT CẢ ACC</b>\nĐang cho phép: <b>{len(cur)}/{len(CROPS)}</b>",
+            parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+        return
+
+    if data == "crop_bulk_all":
+        for a in storage.list_accounts():
+            storage.set_crop_pref(a["id"], list(CROPS))
+        await q.edit_message_text("✅ Set tất cả cây cho mọi acc.", reply_markup=kb_main(q.from_user.id))
+        return
+
+    if data == "crop_bulk_none":
+        for a in storage.list_accounts():
+            storage.set_crop_pref(a["id"], [])
+        await q.edit_message_text("❌ Bỏ hết cây cho mọi acc.", reply_markup=kb_main(q.from_user.id))
         return
 
     if data.startswith("start:"):
@@ -498,8 +598,15 @@ def start_worker(aid):
                                if (t.get("kind") or t.get("type")) == "ad"
                                and (t.get("progress") or 0) < (t.get("target") or 10)]
                     if ad_todo:
-                        # xem tung task mot, loop den khi xong hoac fail 3 lan
-                        for t in ad_todo:
+                        # loop toi 20 lan lien tuc de xem het task
+                        for _round in range(20):
+                            tasks_now = gf.tasks()
+                            ad_todo = [t for t in tasks_now
+                                       if (t.get("kind") or t.get("type")) == "ad"
+                                       and (t.get("progress") or 0) < (t.get("target") or 10)]
+                            if not ad_todo:
+                                break
+                            for t in ad_todo:
                             title = t.get("title", "ad")
                             prog = t.get("progress") or 0
                             target = t.get("target") or 10
@@ -527,7 +634,8 @@ def start_worker(aid):
                 except Exception as e:
                     storage.log_activity(aid, f"ad err: {str(e)[:80]}")
                 try:
-                    fs = farm_tick(gf, {}, aid)
+                    allowed = storage.get_crop_pref(aid)
+                    fs = farm_tick(gf, {}, aid, allowed_crops=allowed)
                     if fs["planted"] or fs["harvested"]:
                         storage.log_activity(aid, f"farm P{fs['planted']} H{fs['harvested']} +{fs['earned_gems']}g")
                 except Exception as e:
@@ -738,6 +846,8 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return app
+
+
 
 
 

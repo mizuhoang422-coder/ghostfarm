@@ -18,6 +18,8 @@ def init():
             init_data TEXT, init_ts INTEGER DEFAULT 0,
             bank_name TEXT, bank_ctk TEXT, bank_stk TEXT,
             last_state TEXT, created_at INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS crop_pref(
+            acc_id INTEGER PRIMARY KEY, crops TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS redeemed_codes(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT, acc_id INTEGER, ok INTEGER, msg TEXT, ts INTEGER)""")
@@ -91,3 +93,17 @@ def is_code_used(code, acc_id):
         r = c.execute("SELECT 1 FROM redeemed_codes WHERE code=? AND acc_id=? AND ok=1 LIMIT 1",
                       (code, acc_id)).fetchone()
         return r is not None
+
+def get_crop_pref(acc_id):
+    """Tra ve list crop duoc phep. Mac dinh tat ca."""
+    with _c() as c:
+        r = c.execute("SELECT crops FROM crop_pref WHERE acc_id=?", (acc_id,)).fetchone()
+        if r and r["crops"]:
+            try: return json.loads(r["crops"])
+            except: pass
+    return None  # None = tat ca
+
+def set_crop_pref(acc_id, crops):
+    with _c() as c:
+        c.execute("INSERT OR REPLACE INTO crop_pref(acc_id, crops) VALUES(?,?)",
+                  (acc_id, json.dumps(crops)))
