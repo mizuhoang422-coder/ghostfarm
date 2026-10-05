@@ -15,11 +15,11 @@ if __name__ == "__main__":
     seed_accounts()
     resume_workers()
     code_watcher_thread()
+    import subprocess
     def _delayed_scan():
-        time.sleep(30)
+        time.sleep(20)
         try:
-            import scan_once
-            scan_once.run()
+            subprocess.Popen(["python", "scan_once.py"])
         except Exception as e:
             print(f"[scan boot] {e}")
     threading.Thread(target=_delayed_scan, daemon=True).start()

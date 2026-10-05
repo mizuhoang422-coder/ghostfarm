@@ -433,7 +433,16 @@ async def _cb_router_inner(q, data, ctx):
         try:
             await q.edit_message_text(txt, parse_mode="HTML", reply_markup=kb)
         except Exception as e:
-            await q.edit_message_text(f"⚠️ Loi: {str(e)[:100]}\n\n{txt[:1000]}", reply_markup=kb)
+            err = str(e)
+            if "not modified" in err.lower():
+                # Data khong doi -> answer_callback
+                try:
+                    await q.answer("Không có thay đổi mới")
+                except: pass
+            else:
+                try:
+                    await q.edit_message_text(f"⚠️ Loi: {err[:100]}", reply_markup=kb)
+                except: pass
         return
 
     if data == "codes":

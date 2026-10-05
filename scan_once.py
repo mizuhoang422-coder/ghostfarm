@@ -1,7 +1,11 @@
-"""Chay scan history trong subprocess rieng, khong conflict event loop."""
-import sys, time
-sys.path.insert(0, ".")
-import storage
-storage.init()
-from bot import scan_history_once
-scan_history_once()
+def run():
+    import sys, time
+    sys.path.insert(0, ".")
+    from bot import scan_history_once
+    try:
+        scan_history_once()
+    except Exception as e:
+        print(f"[scan_once] {e}")
+
+if __name__ == "__main__":
+    run()
