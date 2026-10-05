@@ -351,7 +351,7 @@ async def _cb_router_inner(q, data, ctx):
 
     if data == "live":
         accs = storage.list_accounts()
-        out_lines = ["📊 <b>XEM TRỰC TIẾP</b>", "━" * 16]
+        parts = ["📊 <b>XEM TRỰC TIẾP</b>", "━" * 20]
         now = time.time()
         for a in accs:
             prof = {}
@@ -359,24 +359,73 @@ async def _cb_router_inner(q, data, ctx):
                 if a.get("last_state"): prof = json.loads(a["last_state"])
             except Exception: pass
             aid = a["id"]
+            st = st_get(aid)
             mark = "🟢" if a.get("farm_running") else "🔴"
             coins = prof.get("coins", 0)
             gems = prof.get("gems", 0)
-            st = st_get(aid)
-            acts = storage.get_activity(aid, 1)
-            last_str = ""
-            if acts:
-                dt = int(now - acts[0]["ts"])
-                if dt < 60: last_str = f"{dt}s"
-                elif dt < 3600: last_str = f"{dt//60}p"
-                else: last_str = f"{dt//3600}h"
-            out_lines.append("")
-            out_lines.append(f"{mark} <b>{a['name']}</b>  🪙{coins} 💎{gems}")
-            if st.get("farm"): out_lines.append(f"   🌾 {st['farm']}")
-            if st.get("tasks"): out_lines.append(f"   📋 {st['tasks']}")
-            if st.get("ad"): out_lines.append(f"   🎬 {st['ad']}")
-            if last_str: out_lines.append(f"   ⏱ {last_str} trước")
-        txt = "\n".join(out_lines)
+            level = prof.get("level", 1)
+
+            parts.append("")
+            parts.append(f"{mark} <b>{a['name']}</b>  🪙{coins:,} 💎{gems:,} ⭐Lv{level}")
+
+            # Trang thai hien tai
+            action = st.get("action") or "—"
+            parts.append(f"   ⚙️ {action}")
+
+            # Plots (chi show neu co)
+            plots = st.get("plots") or []
+            if plots:
+                by_state = {}
+                for p in plots:
+                    k = p.get("state", "?")
+                    by_state.setdefault(k, []).append(p)
+                lines = []
+                for p in plots:
+                    s = p.get("state", "?")
+                    idx = p.get("idx")
+                    crop = p.get("crop") or "?"
+                    if s == "empty":
+                        lines.append(f"{idx}:trống")
+                    elif s == "growing":
+                        w = "💧" if p.get("watered") else ""
+                        t = p.get("ready_in") or ""
+                        lines.append(f"{idx}:{crop}{w}({t})" if t else f"{idx}:{crop}{w}")
+                    elif s == "ready":
+                        lines.append(f"{idx}:{crop}✅")
+                    else:
+                        lines.append(f"{idx}:{s}")
+                parts.append(f"   🌾 {' '.join(lines)}")
+
+            # Ads progress
+            ads = st.get("ads") or {}
+            if ads:
+                ad_lines = [f"{k}:{v}" for k, v in ads.items()]
+                parts.append(f"   📺 {' · '.join(ad_lines)}")
+
+            # Task counts + current
+            tasks = st.get("tasks")
+            if tasks:
+                parts.append(f"   📋 {tasks}")
+            tnow = st.get("task_now")
+            if tnow:
+                parts.append(f"   ⏳ {tnow}")
+
+            # Ads current (dang xem)
+            ads_now = st.get("ads_now")
+            if ads_now:
+                parts.append(f"   🎬 {ads_now}")
+
+            # Code gan nhat
+            code_last = st.get("code")
+            if code_last:
+                parts.append(f"   🎁 {code_last}")
+
+            # Last activity time
+            last = st.get("last")
+            if last:
+                parts.append(f"   ⏱ {last}")
+
+        txt = "\n".join(parts)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 Cập nhật", callback_data="live")],
             [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")]
@@ -384,7 +433,7 @@ async def _cb_router_inner(q, data, ctx):
         try:
             await q.edit_message_text(txt, parse_mode="HTML", reply_markup=kb)
         except Exception as e:
-            await q.edit_message_text("⚠️ Loi live panel: " + str(e)[:100] + "\n\n" + txt[:500], reply_markup=kb)
+            await q.edit_message_text(f"⚠️ Loi: {str(e)[:100]}\n\n{txt[:1000]}", reply_markup=kb)
         return
 
     if data == "codes":
