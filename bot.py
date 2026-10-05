@@ -327,7 +327,7 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "live":
         accs = storage.list_accounts()
-        out_lines = ["\U0001f4ca <b>XEM TR\u1ef0C TI\u1ebeP</b>", "\u2501" * 16]
+        out_lines = ["📊 <b>XEM TRỰC TIẾP</b>", "━" * 16]
         now = time.time()
         for a in accs:
             prof = {}
@@ -335,7 +335,7 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 if a.get("last_state"): prof = json.loads(a["last_state"])
             except Exception: pass
             aid = a["id"]
-            mark = "\U0001f7e2" if a.get("farm_running") else "\U0001f534"
+            mark = "🟢" if a.get("farm_running") else "🔴"
             coins = prof.get("coins", 0)
             gems = prof.get("gems", 0)
             st = st_get(aid)
@@ -347,19 +347,21 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 elif dt < 3600: last_str = f"{dt//60}p"
                 else: last_str = f"{dt//3600}h"
             out_lines.append("")
-            out_lines.append(f"{mark} <b>{a['name']}</b>  \U0001fa99{coins} \U0001f48e{gems}")
-            if st.get("farm"): out_lines.append(f"   \U0001f33e {st['farm']}")
-            if st.get("tasks"): out_lines.append(f"   \U0001f4cb {st['tasks']}")
-            if st.get("ad"): out_lines.append(f"   \U0001f3ac {st['ad']}")
-            if last_str: out_lines.append(f"   \u23f1 {last_str} tr\u01b0\u1edbc")
+            out_lines.append(f"{mark} <b>{a['name']}</b>  🪙{coins} 💎{gems}")
+            if st.get("farm"): out_lines.append(f"   🌾 {st['farm']}")
+            if st.get("tasks"): out_lines.append(f"   📋 {st['tasks']}")
+            if st.get("ad"): out_lines.append(f"   🎬 {st['ad']}")
+            if last_str: out_lines.append(f"   ⏱ {last_str} trước")
         txt = "\n".join(out_lines)
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("\U0001f504 C\u1eadp nh\u1eadt", callback_data="live")],
-            [InlineKeyboardButton("\u2b05\ufe0f Quay l\u1ea1i", callback_data="menu")]
+            [InlineKeyboardButton("🔄 Cập nhật", callback_data="live")],
+            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")]
         ])
-        await q.edit_message_text(txt, parse_mode="HTML", reply_markup=kb)
+        try:
+            await q.edit_message_text(txt, parse_mode="HTML", reply_markup=kb)
+        except Exception as e:
+            await q.edit_message_text("⚠️ Loi live panel: " + str(e)[:100] + "\n\n" + txt[:500], reply_markup=kb)
         return
-
 
     if data == "codes":
         codes = storage.list_codes(60)
