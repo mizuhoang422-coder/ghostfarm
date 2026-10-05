@@ -101,7 +101,7 @@ async def acc_refresh_cb(update, ctx):
     aid = int(q.data.split(":")[1])
     a = storage.get_account(aid)
     try:
-        initdata = await asyncio.to_thread(get_initdata_from_session, a["session"], ref=REF_CODE)
+        initdata = await _run_sync(get_initdata_from_session, a["session"], ref=REF_CODE)
         if initdata:
             gf = GF(initdata)
             prof = gf.me()
@@ -292,7 +292,7 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if step == "session":
         session = txt
         try:
-            info = await asyncio.to_thread(get_me_from_session, session)
+            info = await _run_sync(get_me_from_session, session)
         except Exception as e:
             await update.message.reply_text(f"❌ Session lỗi: {str(e)[:150]}")
             ctx.user_data.pop("add_step", None); return
@@ -325,7 +325,7 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("Số không hợp lệ."); return
         a = storage.get_account(aid)
         try:
-            initdata = await asyncio.to_thread(get_initdata_from_session, a["session"], ref=REF_CODE)
+            initdata = await _run_sync(get_initdata_from_session, a["session"], ref=REF_CODE)
             gf = GF(initdata)
             gf.set_address("VND", a.get("bank_stk",""), network="VND")
             s, j = gf.withdraw("VND", a.get("bank_stk",""), amt)
@@ -343,7 +343,7 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("Số không hợp lệ."); return
         a = storage.get_account(aid)
         try:
-            initdata = await asyncio.to_thread(get_initdata_from_session, a["session"], ref=REF_CODE)
+            initdata = await _run_sync(get_initdata_from_session, a["session"], ref=REF_CODE)
             gf = GF(initdata)
             s, j = gf.convert(amt)
             storage.log_activity(aid, f"Đổi {amt} coin -> gem: {s}")
