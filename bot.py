@@ -30,6 +30,10 @@ def kb_main(uid=None):
         InlineKeyboardButton("🎁 Quản lý code", callback_data="codes"),
     ])
     rows.append([
+        InlineKeyboardButton("▶️ Bật farm tất cả", callback_data="start_all"),
+        InlineKeyboardButton("⏹ Tắt farm tất cả", callback_data="stop_all"),
+    ])
+    rows.append([
         InlineKeyboardButton("🔄 Làm mới tất cả", callback_data="rf_all"),
         InlineKeyboardButton("🗑 Xoá acc", callback_data="del_list"),
     ])
@@ -183,6 +187,28 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         rows = [[InlineKeyboardButton(f"🗑 {a['name']}", callback_data=f"del:{a['id']}")] for a in accs]
         rows.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")])
         await q.edit_message_text("🗑 Chọn acc để xoá:", reply_markup=InlineKeyboardMarkup(rows))
+        return
+
+    if data == "start_all":
+        accs = storage.list_accounts()
+        n = 0
+        for a in accs:
+            storage.update_account(a["id"], farm_running=1)
+            start_worker(a["id"])
+            n += 1
+        await q.edit_message_text(f"✅ Đã bật farm {n} acc.", reply_markup=kb_main(q.from_user.id))
+        return
+
+    if data == "stop_all":
+        accs = storage.list_accounts()
+        n = 0
+        for a in accs:
+            storage.update_account(a["id"], farm_running=0)
+            if a["id"] in WORKERS:
+                WORKERS[a["id"]]["stop"] = True
+                WORKERS.pop(a["id"], None)
+            n += 1
+        await q.edit_message_text(f"⏹ Đã tắt farm {n} acc.", reply_markup=kb_main(q.from_user.id))
         return
 
     if data == "rf_all":
@@ -505,9 +531,20 @@ def code_watcher_thread():
                 if not client.is_user_authorized():
                     client.disconnect(); time.sleep(120); continue
                 bot = client.get_entity("ghostfarmx_bot")
-                for msg in client.iter_messages(bot, limit=30):
-                    if not msg.text: continue
-                    for code in CODE_RE.findall(msg.text): process_code(code)
+                # quet TOAN BO history (khong limit) - dung offset_id de di het
+                total_scanned = 0
+                new_codes = 0
+                async def scan():
+                    nonlocal total_scanned, new_codes
+                    async for msg in client.iter_messages(bot):
+                        total_scanned += 1
+                        if not msg.text: continue
+                        for code in CODE_RE.findall(msg.text):
+                            if not any(storage.is_code_used(code, a["id"]) for a in storage.list_accounts()):
+                                new_codes += 1
+                                process_code(code)
+                loop.run_until_complete(scan())
+                print(f"[watcher] scanned {total_scanned} msg, {new_codes} code moi")
                 @client.on(events.NewMessage(chats=bot))
                 async def on_msg(ev):
                     for code in CODE_RE.findall(ev.message.text or ""): process_code(code)
@@ -556,6 +593,36 @@ def seed_accounts():
         except Exception as e:
             print(f"[seed] {s.get('name')}: {e}")
 
+
+def scan_history_once():
+    """Quet toan bo history bot 1 lan, redeem het code chua dung"""
+    from telethon.sync import TelegramClient
+    from telethon.sessions import StringSession
+    accs = storage.list_accounts()
+    if not accs: return
+    try:
+        c = TelegramClient(StringSession(accs[0]["session"]), 2040, "b18441a1ff607e10a989891a5462e627")
+        c.connect()
+        if not c.is_user_authorized():
+            c.disconnect(); return
+        bot = c.get_entity("ghostfarmx_bot")
+        found = 0
+        for msg in c.iter_messages(bot):
+            if not msg.text: continue
+            for code in CODE_RE.findall(msg.text):
+                # check co chua o bat ky acc nao chua
+                need = False
+                for a in storage.list_accounts():
+                    if not storage.is_code_used(code, a["id"]):
+                        need = True; break
+                if need:
+                    found += 1
+                    process_code(code)
+        c.disconnect()
+        print(f"[scan] found {found} code chua claim")
+    except Exception as e:
+        print(f"[scan] {e}")
+
 def build_app():
     storage.init()
     app = Application.builder().token(BOT_TOKEN).build()
@@ -564,4 +631,6 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return app
+
+
 

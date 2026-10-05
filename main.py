@@ -1,4 +1,4 @@
-import os, threading
+import os, threading, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from bot import build_app, resume_workers, code_watcher_thread, seed_accounts
 PORT = int(os.environ.get("PORT", 10000))
@@ -15,4 +15,6 @@ if __name__ == "__main__":
     seed_accounts()
     resume_workers()
     code_watcher_thread()
+    threading.Thread(target=lambda: (time.sleep(20), __import__('bot').scan_history_once()), daemon=True).start()
     app.run_polling(allowed_updates=["message","callback_query"], drop_pending_updates=True)
+
