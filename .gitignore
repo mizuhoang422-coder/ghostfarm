@@ -6,13 +6,5 @@ session.txt
 .env
 .vscode/
 *.bak
-*.bak2
-*.bak3
-*.bak4
-*.bak5
-*.bak6
-*.bak7
-*.bak8
-*.bak9
-*.bak10
-*.bak11
+*.log
+_vuadaomo_ref.py

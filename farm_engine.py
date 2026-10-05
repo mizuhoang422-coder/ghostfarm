@@ -1,4 +1,4 @@
-import asyncio, time, uuid, json, re, urllib.parse
+import asyncio, time, uuid, json, re, urllib.parse, threading
 import httpx
 
 API = "https://ghostfarm-api.nhathaybip2000.workers.dev/api"
@@ -15,7 +15,6 @@ CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER",
              "WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
 
-# STATE = {aid: {action, plots, ads, ads_now, tasks, task_now, code, last}}
 STATE = {}
 
 def _fresh_state():
@@ -77,27 +76,28 @@ async def _fetch_initdata_async(sess):
         return None
 
 
-def fetch_initdata_sync(sess):
-    """Sync wrapper dung asyncio.run - khong dung telethon.sync."""
-    try:
-        return asyncio.run(_fetch_initdata_async(sess))
-    except RuntimeError:
-        # Da co loop trong thread nay -> tao thread rieng
-        import threading
-        result = [None]
-        def _run():
+def _run_in_thread(coro):
+    """Chay coroutine trong thread rieng co loop rieng — KHONG dung asyncio.run()."""
+    result = [None]
+    def _run():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                result[0] = loop.run_until_complete(_fetch_initdata_async(sess))
-            except Exception as e:
-                print(f"[fetch_initdata_thread] {e}")
+                result[0] = loop.run_until_complete(coro)
             finally:
-                try: loop.close()
-                except: pass
-        t = threading.Thread(target=_run)
-        t.start(); t.join(timeout=60)
-        return result[0]
+                loop.close()
+        except Exception as e:
+            print(f"[thread_loop] {e}")
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=90)
+    return result[0]
+
+
+def fetch_initdata_sync(sess):
+    """LUON chay trong thread rieng - khong destroy main loop."""
+    return _run_in_thread(_fetch_initdata_async(sess))
 
 
 async def _get_me_async(sess):
@@ -118,21 +118,7 @@ async def _get_me_async(sess):
 
 
 def get_me_sync(sess):
-    try:
-        return asyncio.run(_get_me_async(sess))
-    except RuntimeError:
-        import threading
-        r = [None]
-        def _run():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                r[0] = loop.run_until_complete(_get_me_async(sess))
-            finally:
-                try: loop.close()
-                except: pass
-        t = threading.Thread(target=_run); t.start(); t.join(timeout=30)
-        return r[0]
+    return _run_in_thread(_get_me_async(sess))
 
 
 # ---------- Game API ----------
@@ -159,19 +145,12 @@ class GF:
 
     def get(self, p): return self.call("GET", p)
     def post(self, p, b=None): return self.call("POST", p, b)
-
     def me(self):
         s, j = self.get("/user/me"); return (j or {}).get("profile") or {}
     def farm_state(self):
         s, j = self.get("/farm"); return (j or {}).get("farm") or {}
     def tasks(self):
         s, j = self.get("/tasks"); return (j or {}).get("tasks") or []
-    def wallet(self):
-        s, j = self.get("/wallet"); return (j or {}).get("wallet") or {}
-    def history(self, limit=20):
-        s, j = self.get(f"/user/history?limit={limit}"); return (j or {}).get("items") or []
-    def referral(self):
-        s, j = self.get("/referral"); return (j or {}).get("referral") or {}
     def convert(self, amount): return self.post("/wallet/convert", {"amount": amount})
     def withdraw(self, method, address, amount): return self.post("/wallet/withdraw", {"method": method, "address": address, "amount": amount})
     def set_address(self, method, address, network=None):
@@ -235,7 +214,6 @@ class GF:
         return False, "claim_fail"
 
 
-# ---------- Farm tick ----------
 def farm_tick(gf, cfg, aid=None, allowed_crops=None):
     stats = {"planted":0,"watered":0,"harvested":0,"earned_gems":0}
     f = gf.farm_state()
@@ -279,7 +257,6 @@ def farm_tick(gf, cfg, aid=None, allowed_crops=None):
     return stats
 
 
-# ---------- Task tick ----------
 def task_tick(gf, cfg, aid=None):
     stats = {"claims":0,"reward":0}
     tasks = gf.tasks()
@@ -297,7 +274,6 @@ def task_tick(gf, cfg, aid=None):
         social_total = sum(1 for t in tasks if (t.get("kind") or t.get("type"))=="social")
         st_set(aid, "tasks", f"Smartlink {link_done}/{link_total} · Social {social_done}/{social_total}")
 
-    # started links -> claim
     started = [t for t in tasks if t.get("state")=="started"
                and (t.get("kind") or t.get("type"))=="link"]
     for t in started:

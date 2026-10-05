@@ -26,7 +26,6 @@ def init():
             acc_id INTEGER, ts INTEGER, msg TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS crop_pref(
             acc_id INTEGER PRIMARY KEY, crops TEXT)""")
-        # Migrate
         cols = [r[1] for r in c.execute("PRAGMA table_info(accounts)").fetchall()]
         for col, typ in [("init_data","TEXT"),("init_ts","INTEGER DEFAULT 0"),
                          ("bank_name","TEXT"),("bank_ctk","TEXT"),("bank_stk","TEXT")]:

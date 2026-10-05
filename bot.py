@@ -1,5 +1,5 @@
 import os, time, json, asyncio, threading, re
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
 from farm_engine import (GF, farm_tick, task_tick, fetch_initdata_sync, get_me_sync,
@@ -20,8 +20,8 @@ CROP_EMOJI = {"wheat":"🌾","barley":"🌿","corn":"🌽","tomato":"🍅","eggp
 
 def is_admin(uid): return uid == ADMIN_UID
 
-def kb_main(uid=None):
-    rows = [
+def kb_main():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ OTP", callback_data="add_otp"),
          InlineKeyboardButton("🔑 Session", callback_data="add_session")],
         [InlineKeyboardButton("📋 Danh sách acc", callback_data="list")],
@@ -32,8 +32,7 @@ def kb_main(uid=None):
         [InlineKeyboardButton("🌾 Chọn cây tất cả", callback_data="crop_bulk")],
         [InlineKeyboardButton("🔄 Refresh tất cả", callback_data="rf_all"),
          InlineKeyboardButton("🗑 Xoá acc", callback_data="del_list")],
-    ]
-    return InlineKeyboardMarkup(rows)
+    ])
 
 def kb_acc(aid):
     a = storage.get_account(aid)
@@ -74,11 +73,13 @@ def acc_text(aid):
             f"🏦 {a.get('bank_name','-')} | {a.get('bank_ctk','-')} | {a.get('bank_stk','-')}")
     return txt
 
+
 # ============ CMD ============
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text(f"⛔ Riêng tư. ID: <code>{update.effective_user.id}</code>",
-                                        parse_mode="HTML"); return
+        await update.message.reply_text(
+            f"⛔ Riêng tư. ID: <code>{update.effective_user.id}</code>",
+            parse_mode="HTML"); return
     accs = storage.list_accounts()
     running = sum(1 for a in accs if a.get("farm_running"))
     codes = storage.list_codes(999)
@@ -90,6 +91,12 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
            f"━━━━━━━━━━━━━━━━\n"
            f"<i>Chọn chức năng bên dưới</i>")
     await update.message.reply_text(txt, parse_mode="HTML", reply_markup=kb_main())
+
+async def cmd_cancel(update, ctx):
+    u = update.effective_user.id
+    AS_STATE.pop(u, None); OTP_STATE.pop(u, None); UI_WAIT.pop(u, None)
+    await update.message.reply_text("✅ Đã huỷ.", reply_markup=kb_main())
+
 
 # ============ CB ============
 async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -106,12 +113,10 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         import traceback
         print(f"[CB ERR] {q.data}: {e}\n{traceback.format_exc()}")
         try:
-            await q.edit_message_text(f"❌ Loi: <code>{str(e)[:200]}</code>",
-                                       parse_mode="HTML")
+            await q.edit_message_text(f"❌ Loi: <code>{str(e)[:200]}</code>", parse_mode="HTML")
         except: pass
 
 async def _cb_inner(q, data, ctx):
-    # Menu
     if data == "menu":
         accs = storage.list_accounts()
         running = sum(1 for a in accs if a.get("farm_running"))
@@ -159,12 +164,12 @@ async def _cb_inner(q, data, ctx):
     if data.startswith("rf:"):
         aid = int(data.split(":")[1])
         await q.edit_message_text("🔄 Đang làm mới...")
-        ok = await refresh_idata(aid)
+        ok = await asyncio.to_thread(refresh_idata, aid)
         if ok:
             a = storage.get_account(aid)
             try:
                 gf = GF(a["init_data"])
-                prof = await asyncio.to_thread(gf.me)
+                prof = gf.me()
                 storage.update_account(aid, last_state=json.dumps(prof))
             except: pass
         await q.edit_message_text(acc_text(aid), parse_mode="HTML", reply_markup=kb_acc(aid))
@@ -175,7 +180,6 @@ async def _cb_inner(q, data, ctx):
         storage.delete_account(aid)
         if aid in WORKERS:
             WORKERS[aid]["stop"] = True
-        # Show list
         accs = storage.list_accounts()
         rows = [[InlineKeyboardButton(f"{'🟢' if a.get('farm_running') else '🔴'} {a['name']}",
                                        callback_data=f"acc:{a['id']}")] for a in accs]
@@ -216,7 +220,7 @@ async def _cb_inner(q, data, ctx):
         await q.edit_message_text("🔄 Đang refresh tất cả...")
         accs = storage.list_accounts()
         for a in accs:
-            await refresh_idata(a["id"])
+            await asyncio.to_thread(refresh_idata, a["id"])
         await q.edit_message_text(f"✅ Đã refresh {len(accs)} acc.", reply_markup=kb_main())
         return
 
@@ -237,11 +241,12 @@ async def _cb_inner(q, data, ctx):
         return
 
     if data == "crop_bulk":
-        rows = []
-        line = []
         accs = storage.list_accounts()
-        cur = storage.get_crop_pref(accs[0]["id"]) if accs else None
+        if not accs:
+            await q.edit_message_text("Chưa có acc."); return
+        cur = storage.get_crop_pref(accs[0]["id"])
         if cur is None: cur = list(CROPS)
+        rows = []; line = []
         for c in CROPS:
             mark = "✅" if c in cur else "⬜"
             line.append(InlineKeyboardButton(f"{mark}{CROP_EMOJI.get(c,'🌱')} {c}",
@@ -251,7 +256,7 @@ async def _cb_inner(q, data, ctx):
         rows.append([InlineKeyboardButton("✅ Tất cả", callback_data="crop_bulk_all"),
                      InlineKeyboardButton("❌ Bỏ hết", callback_data="crop_bulk_none")])
         rows.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")])
-        await q.edit_message_text("🌾 <b>CHỌN CÂY TẤT CẢ ACC</b>",
+        await q.edit_message_text(f"🌾 <b>CHỌN CÂY TẤT CẢ ACC</b> ({len(cur)}/{len(CROPS)})",
                                    parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
         return
 
@@ -330,8 +335,7 @@ async def _cb_inner(q, data, ctx):
         aid = int(data.split(":")[1])
         a = storage.get_account(aid)
         if not a.get("bank_stk"):
-            await q.edit_message_text("⚠️ Chưa cài bank. Bấm Cài bank trước.",
-                                       reply_markup=kb_acc(aid))
+            await q.edit_message_text("⚠️ Chưa cài bank. Bấm Cài bank trước.", reply_markup=kb_acc(aid))
             return
         UI_WAIT[q.from_user.id] = {"type": "wd", "aid": aid}
         await q.edit_message_text(f"💰 Nhập số <b>USDT</b> rút (acc {a['name']}):", parse_mode="HTML")
@@ -347,18 +351,17 @@ async def _cb_inner(q, data, ctx):
     if data == "add_session":
         AS_STATE[q.from_user.id] = {"step": "session"}
         await q.edit_message_text(
-            "🔑 <b>THÊM ACC (SESSION)</b>\n\n"
-            "Gửi <b>StringSession</b> vào chat.\n\n"
-            "Gõ /cancel để huỷ.", parse_mode="HTML")
+            "🔑 <b>THÊM ACC (SESSION)</b>\n\nGửi <b>StringSession</b> vào chat.\n\nGõ /cancel để huỷ.",
+            parse_mode="HTML")
         return
 
     if data == "add_otp":
         OTP_STATE[q.from_user.id] = {"step": "name"}
         await q.edit_message_text(
-            "📱 <b>THÊM ACC (OTP)</b>\n\n"
-            "Bước 1/3: Nhập <b>tên</b> acc (chữ/số/_).\n\nGõ /cancel để huỷ.",
+            "📱 <b>THÊM ACC (OTP)</b>\n\nBước 1/3: Nhập <b>tên</b> acc (chữ/số/_).\n\nGõ /cancel để huỷ.",
             parse_mode="HTML")
         return
+
 
 # ============ RENDER ============
 async def render_live(q):
@@ -418,16 +421,16 @@ async def render_live(q):
         await q.edit_message_text(txt, parse_mode="HTML", reply_markup=kb)
     except Exception as e:
         if "not modified" in str(e).lower():
-            try: await q.answer("Không có thay đổi")
+            try: await q.answer("Không có thay đổi mới")
             except: pass
         else:
             try:
-                await q.edit_message_text(f"⚠️ {str(e)[:150]}\n\n{txt[:500]}",
-                                           parse_mode="HTML", reply_markup=kb)
+                await q.edit_message_text(f"⚠️ {str(e)[:150]}\n\n{txt[:500]}", parse_mode="HTML", reply_markup=kb)
             except: pass
 
 async def render_crop(q, aid):
-    allowed = storage.get_crop_pref(aid) or list(CROPS)
+    allowed = storage.get_crop_pref(aid)
+    if allowed is None: allowed = list(CROPS)
     rows = []; line = []
     for c in CROPS:
         mark = "✅" if c in allowed else "⬜"
@@ -439,17 +442,18 @@ async def render_crop(q, aid):
                  InlineKeyboardButton("❌ Bỏ hết", callback_data=f"crop_none:{aid}")])
     rows.append([InlineKeyboardButton("⬅️ Quay lại", callback_data=f"acc:{aid}")])
     await q.edit_message_text(
-        f"🌾 <b>CHỌN CÂY</b> (acc {aid})\nCho phép: <b>{len(allowed)}/{len(CROPS)}</b>\n"
-        f"Bot trồng theo thứ tự cao→thấp.",
+        f"🌾 <b>CHỌN CÂY</b> (acc {aid})\nCho phép: <b>{len(allowed)}/{len(CROPS)}</b>",
         parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+
 
 # ============ TEXT ============
 async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     txt = (update.message.text or "").strip()
+    uid = update.effective_user.id
 
     # Session flow
-    st = AS_STATE.get(update.effective_user.id)
+    st = AS_STATE.get(uid)
     if st and st.get("step") == "session":
         try: await update.message.delete()
         except: pass
@@ -458,20 +462,22 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         m = await update.message.reply_text("⏳ Đang kiểm tra...")
         info = await asyncio.to_thread(get_me_sync, txt)
         if not info:
-            await m.edit_text("❌ Session không hợp lệ."); AS_STATE.pop(update.effective_user.id, None); return
+            await m.edit_text("❌ Session không hợp lệ.")
+            AS_STATE.pop(uid, None); return
         idata = await asyncio.to_thread(fetch_initdata_sync, txt)
         if not idata:
-            await m.edit_text("❌ Không fetch được initData. Acc block bot?"); AS_STATE.pop(update.effective_user.id, None); return
+            await m.edit_text("❌ Không fetch được initData. Acc block bot?")
+            AS_STATE.pop(uid, None); return
         aid = storage.add_account(info.get("username") or f"acc{info['uid']}",
                                    "?", txt, info["uid"])
         storage.update_account(aid, init_data=idata, init_ts=int(time.time()), farm_running=1)
         start_worker(aid)
-        AS_STATE.pop(update.effective_user.id, None)
+        AS_STATE.pop(uid, None)
         await m.edit_text(f"✅ Đã thêm acc #{aid} — uid={info['uid']}", reply_markup=kb_main())
         return
 
     # OTP flow
-    st = OTP_STATE.get(update.effective_user.id)
+    st = OTP_STATE.get(uid)
     if st:
         step = st.get("step")
         if step == "name":
@@ -500,7 +506,7 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await m.edit_text(f"📨 Đã gửi OTP. Nhập code (bước 3/3):")
             except Exception as e:
                 await m.edit_text(f"❌ Lỗi: {str(e)[:150]}")
-                OTP_STATE.pop(update.effective_user.id, None)
+                OTP_STATE.pop(uid, None)
             return
         if step == "code":
             code = txt.replace(" ","").replace("-","")
@@ -528,11 +534,10 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ OTP sai."); return
             idata = await asyncio.to_thread(fetch_initdata_sync, new_sess)
             info = await asyncio.to_thread(get_me_sync, new_sess)
-            aid = storage.add_account(st["name"], st["phone"], new_sess,
-                                       info["uid"] if info else 0)
+            aid = storage.add_account(st["name"], st["phone"], new_sess, info["uid"] if info else 0)
             storage.update_account(aid, init_data=idata or "", init_ts=int(time.time()), farm_running=1)
             if idata: start_worker(aid)
-            OTP_STATE.pop(update.effective_user.id, None)
+            OTP_STATE.pop(uid, None)
             await update.message.reply_text(f"✅ Đã thêm acc <b>{st['name']}</b>", parse_mode="HTML", reply_markup=kb_main())
             return
         if step == "2fa":
@@ -552,17 +557,17 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 aid = storage.add_account(st["name"], st["phone"], new_sess, info["uid"] if info else 0)
                 storage.update_account(aid, init_data=idata or "", init_ts=int(time.time()), farm_running=1)
                 if idata: start_worker(aid)
-                OTP_STATE.pop(update.effective_user.id, None)
+                OTP_STATE.pop(uid, None)
                 await update.message.reply_text(f"✅ Acc <b>{st['name']}</b> added.", parse_mode="HTML", reply_markup=kb_main())
             except Exception as e:
                 await update.message.reply_text(f"❌ {str(e)[:150]}")
             return
 
     # UI_WAIT
-    w = UI_WAIT.get(update.effective_user.id)
+    w = UI_WAIT.get(uid)
     if w:
         t = w.get("type"); aid = w.get("aid")
-        UI_WAIT.pop(update.effective_user.id, None)
+        UI_WAIT.pop(uid, None)
         a = storage.get_account(aid)
         if t == "bank":
             parts = txt.split("|")
@@ -575,7 +580,7 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             try: amt = float(txt)
             except: await update.message.reply_text("Số không hợp lệ."); return
             if not a.get("init_data"):
-                await update.message.reply_text("❌ Chưa có initData. Refresh acc trước."); return
+                await update.message.reply_text("❌ Chưa có initData."); return
             try:
                 gf = GF(a["init_data"])
                 await asyncio.to_thread(gf.set_address, "VND", a["bank_stk"], "VND")
@@ -603,17 +608,13 @@ async def text_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Dùng menu 👇", reply_markup=kb_main())
 
-async def cmd_cancel(update, ctx):
-    u = update.effective_user.id
-    AS_STATE.pop(u, None); OTP_STATE.pop(u, None); UI_WAIT.pop(u, None)
-    await update.message.reply_text("✅ Đã huỷ.", reply_markup=kb_main())
 
 # ============ WORKER ============
-async def refresh_idata(aid):
+def refresh_idata(aid):
     a = storage.get_account(aid)
     if not a: return False
     try:
-        fresh = await asyncio.to_thread(fetch_initdata_sync, a["session"])
+        fresh = fetch_initdata_sync(a["session"])
         if fresh:
             storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))
             return True
@@ -634,7 +635,7 @@ def start_worker(aid):
                 if not a or not a.get("farm_running"): break
                 idata = a.get("init_data")
                 if not idata or (time.time() - (a.get("init_ts") or 0) > IDATA_TTL):
-                    if not loop.run_until_complete(refresh_idata(aid)):
+                    if not refresh_idata(aid):
                         storage.log_activity(aid, "initData fail"); time.sleep(60); continue
                     a = storage.get_account(aid); idata = a["init_data"]
                 gf = GF(idata)
@@ -672,11 +673,12 @@ def resume_workers():
         if a.get("farm_running"):
             start_worker(a["id"])
 
+
 # ============ WATCHER ============
 def code_watcher_thread():
     def run():
         loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-        time.sleep(15)
+        time.sleep(20)
         while True:
             try:
                 accs = storage.list_accounts()
@@ -691,7 +693,6 @@ def code_watcher_thread():
                     client.disconnect(); time.sleep(120); continue
                 bot = client.get_entity("ghostfarmx_bot")
                 print("[watcher] connected")
-                # Backfill
                 codes = []
                 total = 0
                 for msg in client.iter_messages(bot):
@@ -730,8 +731,7 @@ def process_code(code):
             if idata:
                 storage.update_account(a["id"], init_data=idata, init_ts=int(time.time()))
         if not idata:
-            storage.add_code(code, a["id"], False, "no_initdata")
-            continue
+            storage.add_code(code, a["id"], False, "no_initdata"); continue
         try:
             gf = GF(idata)
             ok, msg = gf.claim_promo(code)
@@ -744,6 +744,8 @@ def process_code(code):
             storage.add_code(code, a["id"], False, str(e)[:80])
     print(f"[code] {code} done {ok_n}/{len(accs)}")
 
+
+# ============ SEED ============
 def seed_accounts():
     try:
         from seed_accounts import SEED
@@ -761,6 +763,7 @@ def seed_accounts():
             print(f"[seed] {s['name']} OK + farm started")
         else:
             print(f"[seed] {s['name']} no initData")
+
 
 # ============ BUILD ============
 def build_app():

@@ -14,12 +14,12 @@ def run_http():
     HTTPServer(("0.0.0.0", PORT), H).serve_forever()
 
 if __name__ == "__main__":
-    # FIX: tao + set event loop cho main thread TRUOC khi build app
+    # Set event loop cho MainThread TRUOC khi run_polling
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+        asyncio.set_event_loop(loop)
 
     threading.Thread(target=run_http, daemon=True).start()
     app = build_app()
