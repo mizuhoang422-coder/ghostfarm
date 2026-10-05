@@ -8,6 +8,7 @@ from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdat
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
+
 CROP_EMOJI = {"wheat":"🌾","barley":"🌿","corn":"🌽","tomato":"🍅","eggplant":"🍆","pumpkin":"🎃"}
 
 ADMIN_UID = 8249205817
