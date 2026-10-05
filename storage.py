@@ -18,17 +18,18 @@ def init():
             init_data TEXT, init_ts INTEGER DEFAULT 0,
             bank_name TEXT, bank_ctk TEXT, bank_stk TEXT,
             last_state TEXT, created_at INTEGER)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS crop_pref(
-            acc_id INTEGER PRIMARY KEY, crops TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS redeemed_codes(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT, acc_id INTEGER, ok INTEGER, msg TEXT, ts INTEGER)""")
         c.execute("""CREATE TABLE IF NOT EXISTS activity(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             acc_id INTEGER, ts INTEGER, msg TEXT)""")
-        # migrate cu
+        c.execute("""CREATE TABLE IF NOT EXISTS crop_pref(
+            acc_id INTEGER PRIMARY KEY, crops TEXT)""")
+        # Migrate
         cols = [r[1] for r in c.execute("PRAGMA table_info(accounts)").fetchall()]
-        for col, typ in [("init_data","TEXT"),("init_ts","INTEGER DEFAULT 0")]:
+        for col, typ in [("init_data","TEXT"),("init_ts","INTEGER DEFAULT 0"),
+                         ("bank_name","TEXT"),("bank_ctk","TEXT"),("bank_stk","TEXT")]:
             if col not in cols:
                 c.execute(f"ALTER TABLE accounts ADD COLUMN {col} {typ}")
 
@@ -95,13 +96,12 @@ def is_code_used(code, acc_id):
         return r is not None
 
 def get_crop_pref(acc_id):
-    """Tra ve list crop duoc phep. Mac dinh tat ca."""
     with _c() as c:
         r = c.execute("SELECT crops FROM crop_pref WHERE acc_id=?", (acc_id,)).fetchone()
         if r and r["crops"]:
             try: return json.loads(r["crops"])
             except: pass
-    return None  # None = tat ca
+    return None
 
 def set_crop_pref(acc_id, crops):
     with _c() as c:
