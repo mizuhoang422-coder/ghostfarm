@@ -2,7 +2,7 @@ import os, time, json, asyncio, threading, re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
-from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref,
+from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE,
                          get_me_from_session, otp_send_code, otp_sign_in, otp_sign_in_2fa)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -40,7 +40,7 @@ def kb_panel(aid, a):
     rb = InlineKeyboardButton("⏹ Dừng farm", callback_data=f"stop:{aid}") if run else InlineKeyboardButton("▶️ Bật farm", callback_data=f"start:{aid}")
     return InlineKeyboardMarkup([
         [rb],
-        [InlineKeyboardButton("💰 Rút USDT", callback_data=f"wd:{aid}"),
+        [InlineKeyboardButton("💰 Rút VND", callback_data=f"wd:{aid}"),
          InlineKeyboardButton("💱 Coin→Gem", callback_data=f"cv:{aid}")],
         [InlineKeyboardButton("🏦 Cài bank", callback_data=f"bank:{aid}"),
          InlineKeyboardButton("🔄 Làm mới", callback_data=f"rf:{aid}")],
@@ -196,15 +196,31 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if data == "live":
         accs = storage.list_accounts()
         lines = ["📊 <b>XEM TRỰC TIẾP</b>", "━━━━━━━━━━━━━━━━"]
+        now = time.time()
         for a in accs:
             prof = {}
             try:
                 if a.get("last_state"): prof = json.loads(a["last_state"])
             except: pass
             mark = "🟢" if a.get("farm_running") else "🔴"
-            lines.append(f"{mark} <b>{a['name']}</b> | 🪙{prof.get('coins',0)} 💎{prof.get('gems',0)}")
-        await q.edit_message_text("\n".join(lines), parse_mode="HTML",
-                                   reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")]]))
+            cur = STATE.get(a["id"], "")
+            if not cur:
+                if a.get("farm_running"):
+                    # kiem tra last activity
+                    acts = storage.get_activity(a["id"], 1)
+                    if acts and now - acts[0]["ts"] < 90:
+                        cur = "⏸️ Đang chờ (idle)"
+                    else:
+                        cur = "💤 Chưa hoạt động"
+                else:
+                    cur = "⏹ Đã dừng"
+            lines.append(f"{mark} <b>{a['name']}</b> 🪙{prof.get('coins',0)} 💎{prof.get('gems',0)}")
+            lines.append(f"   <i>{cur}</i>")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Cập nhật", callback_data="live")],
+            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")]
+        ])
+        await q.edit_message_text("\n".join(lines), parse_mode="HTML", reply_markup=kb)
         return
 
     if data == "codes":
@@ -443,12 +459,12 @@ def start_worker(aid):
                     a = storage.get_account(aid); idata = a["init_data"]
                 gf = GF(idata)
                 try:
-                    ts = task_tick(gf, {})
+                    ts = task_tick(gf, {}, aid)
                     if ts["claims"]: storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
                 except Exception as e:
                     storage.log_activity(aid, f"task err {str(e)[:60]}")
                 try:
-                    fs = farm_tick(gf, {})
+                    fs = farm_tick(gf, {}, aid)
                     if fs["planted"] or fs["harvested"]:
                         storage.log_activity(aid, f"farm P{fs['planted']} H{fs['harvested']} +{fs['earned_gems']}g")
                 except Exception as e:
@@ -548,3 +564,4 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return app
+

@@ -10,6 +10,7 @@ API_ID = 2040
 API_HASH = "b18441a1ff607e10a989891a5462e627"
 BOT_USER = "ghostfarmx_bot"
 
+STATE = {}  # aid -> text trang thai
 CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
 
@@ -219,7 +220,7 @@ class GF:
         return False, "claim fail"
 
 
-def farm_tick(gf, cfg):
+def farm_tick(gf, cfg, aid=None):
     stats = {"planted":0,"watered":0,"harvested":0,"earned_gems":0}
     f = gf.farm_state(); plots = f.get("plots") or []
     now = int(time.time()*1000)
@@ -243,9 +244,41 @@ def farm_tick(gf, cfg):
     return stats
 
 
-def task_tick(gf, cfg):
+def task_tick(gf, cfg, aid=None):
     stats = {"claims":0,"reward":0}
     tasks = gf.tasks()
+    # ----- AD tasks: xem quang cao -----
+    for t in tasks:
+        if (t.get("kind") or t.get("type")) != "ad": continue
+        tid = t.get("id")
+        prog = t.get("progress") or 0
+        target = t.get("target") or 10
+        if prog >= target: continue
+        if aid: STATE[aid] = f"👀 Xem ad task {tid} ({prog}/{target})"
+        # mo session
+        s, j = gf.post("/ads/session", {"taskId": tid})
+        code = (j or {}).get("code", "")
+        if s != 200:
+            if aid: STATE[aid] = f"⚠️ Ad task {tid} fail: {code}"
+            continue
+        sid = (j or {}).get("sessionId")
+        if not sid: continue
+        mws = j.get("minWatchSec", 6)
+        if aid: STATE[aid] = f"⏳ Chờ ad task {tid} ({mws}s)"
+        time.sleep(mws + 1)
+        if aid: STATE[aid] = f"🎬 Complete ad task {tid}"
+        for slot in range(min(target - prog, 5)):
+            s2, j2 = gf.post("/ads/complete", {"sessionId": sid, "slot": prog + slot})
+            if s2 != 200: break
+            time.sleep(0.5)
+        # claim
+        s3, j3 = gf.post(f"/tasks/{tid}/claim", {})
+        if s3 == 200:
+            rw = (j3 or {}).get("reward", 0)
+            stats["claims"] += 1
+            stats["reward"] += rw
+            if aid: STATE[aid] = f"✅ Task {tid} +{rw} coin"
+    # ----- LINK tasks -----
     started = [t for t in tasks if t.get("state")=="started" and (t.get("kind") or t.get("type"))=="link"]
     for t in started:
         s, j = gf.post("/tasks/"+str(t["id"])+"/claim", {})
@@ -267,3 +300,4 @@ def task_tick(gf, cfg):
             stats["claims"] += 1; stats["reward"] += (j or {}).get("reward", 0)
         time.sleep(0.5)
     return stats
+
