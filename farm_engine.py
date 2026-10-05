@@ -1,55 +1,91 @@
-import asyncio, time, uuid, json, re
+import asyncio, time, uuid, json, re, urllib.parse
 from urllib.parse import parse_qsl, unquote, urlparse
 import httpx
 
 API = "https://ghostfarm-api.nhathaybip2000.workers.dev/api"
 ORIGIN = "https://ghostfarm-k3m.pages.dev"
+BASE = "https://ghostfarm-k3m.pages.dev/"
 UA = {"User-Agent":"Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36","Origin":ORIGIN,"Referer":ORIGIN+"/","content-type":"application/json"}
 API_ID = 2040
 API_HASH = "b18441a1ff607e10a989891a5462e627"
-BOT = "ghostfarmx_bot"
-WEB_URL = "https://ghostfarm-k3m.pages.dev/"
+BOT_USER = "ghostfarmx_bot"
 
 CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
 
-async def get_me_async(session_str):
+
+async def fetch_initdata(sess):
     from telethon import TelegramClient
     from telethon.sessions import StringSession
-    c = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+    from telethon.tl import functions
+    client = TelegramClient(StringSession(sess), API_ID, API_HASH)
+    await client.connect()
+    try:
+        if not await client.is_user_authorized(): return None
+        bot = await client.get_entity(BOT_USER)
+        for pl in ("android", "web", "ios"):
+            try:
+                res = await client(functions.messages.RequestWebViewRequest(
+                    peer=bot, bot=bot, platform=pl, url=BASE, from_bot_menu=False))
+                url = res.url
+                if "#tgWebAppData=" in url:
+                    fr = url.split("#tgWebAppData=", 1)[1]
+                    raw = re.split(r"&tgWebAppVersion|&tgWebAppPlatform|&tgWebAppThemeParams", fr)[0]
+                    return urllib.parse.unquote(raw)
+                if "tgWebAppData=" in url:
+                    fr = url.split("tgWebAppData=", 1)[1]
+                    return urllib.parse.unquote(fr.split("&")[0])
+            except Exception:
+                pass
+        return None
+    finally:
+        try: await client.disconnect()
+        except Exception: pass
+
+
+async def fetch_initdata_with_ref(sess, ref=""):
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+    from telethon.tl import functions
+    client = TelegramClient(StringSession(sess), API_ID, API_HASH)
+    await client.connect()
+    try:
+        if not await client.is_user_authorized(): return None
+        bot = await client.get_entity(BOT_USER)
+        url_base = BASE + ("?startapp=" + ref if ref else "")
+        for pl in ("android", "web", "ios"):
+            try:
+                res = await client(functions.messages.RequestWebViewRequest(
+                    peer=bot, bot=bot, platform=pl, url=url_base, from_bot_menu=False))
+                url = res.url
+                if "#tgWebAppData=" in url:
+                    fr = url.split("#tgWebAppData=", 1)[1]
+                    raw = re.split(r"&tgWebAppVersion|&tgWebAppPlatform|&tgWebAppThemeParams", fr)[0]
+                    return urllib.parse.unquote(raw)
+                if "tgWebAppData=" in url:
+                    fr = url.split("tgWebAppData=", 1)[1]
+                    return urllib.parse.unquote(fr.split("&")[0])
+            except Exception:
+                pass
+        return None
+    finally:
+        try: await client.disconnect()
+        except Exception: pass
+
+
+async def get_me_from_session(sess):
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+    c = TelegramClient(StringSession(sess), API_ID, API_HASH)
     await c.connect()
     if not await c.is_user_authorized():
         await c.disconnect(); return None
     me = await c.get_me()
     await c.disconnect()
-    return {"uid": me.id, "name": (me.first_name or "") + (" "+(me.last_name or "") if me.last_name else ""), "username": me.username}
+    return {"uid": me.id,
+            "name": (me.first_name or "") + (" "+(me.last_name or "") if me.last_name else ""),
+            "username": me.username}
 
-async def get_initdata_async(session_str, ref=""):
-    from telethon import TelegramClient
-    from telethon.sessions import StringSession
-    from telethon.tl.functions.messages import RequestWebViewRequest
-    c = TelegramClient(StringSession(session_str), API_ID, API_HASH)
-    await c.connect()
-    try:
-        b = await c.get_entity(BOT)
-        urls = [WEB_URL+"?startapp="+ref, WEB_URL] if ref else [WEB_URL]
-        for u in urls:
-            for plat in ["android","ios","web"]:
-                try:
-                    res = await c(RequestWebViewRequest(peer=b, bot=b, platform=plat, url=u, from_bot_menu=True, compact=True))
-                    url = getattr(res,"url",None)
-                    if not url: continue
-                    frag = urlparse(url).fragment or url.split("#",1)[-1]
-                    q = dict(parse_qsl(frag))
-                    idata = q.get("tgWebAppData")
-                    if not idata:
-                        q2 = dict(parse_qsl(urlparse(url).query))
-                        idata = q2.get("tgWebAppData")
-                    if idata: return unquote(idata)
-                except Exception: continue
-    finally:
-        await c.disconnect()
-    return None
 
 async def otp_send_code(phone):
     from telethon import TelegramClient
@@ -61,19 +97,37 @@ async def otp_send_code(phone):
     await c.disconnect()
     return sess, sent.phone_code_hash
 
-async def otp_sign_in(temp_session, phone, code):
+
+async def otp_sign_in(temp_session, phone, code, phone_code_hash=None):
     from telethon import TelegramClient
     from telethon.sessions import StringSession
     from telethon.errors import SessionPasswordNeededError
     c = TelegramClient(StringSession(temp_session), API_ID, API_HASH)
     await c.connect()
     try:
-        await c.sign_in(phone=phone, code=code)
+        await c.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
     except SessionPasswordNeededError:
         await c.disconnect(); return None, "2FA"
+    except Exception as e:
+        await c.disconnect(); return None, str(e)[:120]
     sess = c.session.save()
     await c.disconnect()
     return sess, "OK"
+
+
+async def otp_sign_in_2fa(temp_session, password):
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+    c = TelegramClient(StringSession(temp_session), API_ID, API_HASH)
+    await c.connect()
+    try:
+        await c.sign_in(password=password)
+    except Exception as e:
+        await c.disconnect(); return None, str(e)[:120]
+    sess = c.session.save()
+    await c.disconnect()
+    return sess, "OK"
+
 
 class GF:
     def __init__(self, initdata):
@@ -85,7 +139,6 @@ class GF:
         self.c.headers["authorization"] = "Bearer " + self.token
         self.c.headers["x-farm-fp"] = "{}"
     def call(self, m, p, b=None):
-        if "convert" in p.lower() and False: pass
         try:
             r = self.c.request(m, API+p, json=b)
             try: return r.status_code, r.json()
@@ -99,6 +152,12 @@ class GF:
         s, j = self.get("/farm"); return (j or {}).get("farm") or {}
     def tasks(self):
         s, j = self.get("/tasks"); return (j or {}).get("tasks") or []
+    def wallet(self):
+        s, j = self.get("/wallet"); return (j or {}).get("wallet") or {}
+    def history(self, limit=20):
+        s, j = self.get(f"/user/history?limit={limit}"); return (j or {}).get("items") or []
+    def referral(self):
+        s, j = self.get("/referral"); return (j or {}).get("referral") or {}
     def convert(self, amount): return self.post("/wallet/convert", {"amount": amount})
     def withdraw(self, method, address, amount): return self.post("/wallet/withdraw", {"method": method, "address": address, "amount": amount})
     def set_address(self, method, address, network=None):
@@ -159,6 +218,7 @@ class GF:
                 return True, "ok"
         return False, "claim fail"
 
+
 def farm_tick(gf, cfg):
     stats = {"planted":0,"watered":0,"harvested":0,"earned_gems":0}
     f = gf.farm_state(); plots = f.get("plots") or []
@@ -181,6 +241,7 @@ def farm_tick(gf, cfg):
                     stats["harvested"] += 1
                     stats["earned_gems"] += (j or {}).get("earned", 0)
     return stats
+
 
 def task_tick(gf, cfg):
     stats = {"claims":0,"reward":0}
