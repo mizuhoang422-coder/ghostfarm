@@ -2,6 +2,7 @@ import os, time, json, asyncio, threading, re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
+from ad_watcher import watch_one_ad
 from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE,
                          get_me_from_session, otp_send_code, otp_sign_in, otp_sign_in_2fa)
 
@@ -489,6 +490,22 @@ def start_worker(aid):
                     if ts["claims"]: storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
                 except Exception as e:
                     storage.log_activity(aid, f"task err {str(e)[:60]}")
+                # ---- AD WATCHER (Playwright) ----
+                try:
+                    tasks_now = gf.tasks()
+                    ad_todo = [t for t in tasks_now if (t.get("kind") or t.get("type")) == "ad" and (t.get("progress") or 0) < (t.get("target") or 10)]
+                    if ad_todo:
+                        from farm_engine import STATE
+                        STATE[aid] = f"🎬 Mo WebView xem ad ({len(ad_todo)} task)"
+                        res = watch_one_ad(idata, log=lambda m: storage.log_activity(aid, m))
+                        if res.get("ok"):
+                            STATE[aid] = f"✅ Ad OK: {res.get('progress_after','')}"
+                            storage.log_activity(aid, f"ad OK -> {res.get('progress_after','')}")
+                        else:
+                            STATE[aid] = f"⚠️ Ad fail: {res.get('err','unknown')}"
+                            storage.log_activity(aid, f"ad fail {res.get('err','')}")
+                except Exception as e:
+                    storage.log_activity(aid, f"ad-watcher err: {str(e)[:80]}")
                 try:
                     fs = farm_tick(gf, {}, aid)
                     if fs["planted"] or fs["harvested"]:
@@ -631,6 +648,7 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return app
+
 
 
 
