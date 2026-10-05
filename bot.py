@@ -592,47 +592,40 @@ def start_worker(aid):
                     storage.log_activity(aid, f"task err {str(e)[:60]}")
                 # ---- AD WATCHER (Playwright) ----
                 try:
-                    # kiem tra co task ad chua xong khong
-                    tasks_now = gf.tasks()
-                    ad_todo = [t for t in tasks_now
-                               if (t.get("kind") or t.get("type")) == "ad"
-                               and (t.get("progress") or 0) < (t.get("target") or 10)]
-                    if ad_todo:
-                        # loop toi 20 lan lien tuc de xem het task
-                        for _round in range(20):
-                            tasks_now = gf.tasks()
-                            ad_todo = [t for t in tasks_now
-                                       if (t.get("kind") or t.get("type")) == "ad"
-                                       and (t.get("progress") or 0) < (t.get("target") or 10)]
-                            if not ad_todo:
-                                break
-                            for t in ad_todo:
+                    for _round in range(20):
+                        tasks_now = gf.tasks()
+                        ad_todo = [t for t in tasks_now
+                                   if (t.get("kind") or t.get("type")) == "ad"
+                                   and (t.get("progress") or 0) < (t.get("target") or 10)]
+                        if not ad_todo:
+                            break
+                        for t in ad_todo:
                             title = t.get("title", "ad")
                             prog = t.get("progress") or 0
                             target = t.get("target") or 10
-                            STATE[aid] = f"🎬 {title} {prog}/{target}"
-                            storage.log_activity(aid, f"ad start {title} {prog}/{target}")
-                            # thu toi 3 lan
+                            STATE[aid] = "Xem " + title + " " + str(prog) + "/" + str(target)
+                            storage.log_activity(aid, "ad start " + title + " " + str(prog) + "/" + str(target))
                             for attempt in range(3):
                                 res = watch_one_ad(idata, log=lambda m: None, max_wait=90, task_name=title)
                                 if res.get("ok"):
                                     after = (res.get("progress_after") or {}).get(title, "?")
-                                    STATE[aid] = f"✅ {title} {after}"
-                                    storage.log_activity(aid, f"ad OK {title} -> {after}")
+                                    STATE[aid] = "OK " + title + " " + str(after)
+                                    storage.log_activity(aid, "ad OK " + title + " -> " + str(after))
                                     break
                                 else:
                                     err = res.get("err", "?")
-                                    storage.log_activity(aid, f"ad fail {title} #{attempt+1}: {err}")
-                                    if err in ("no_task",):
+                                    storage.log_activity(aid, "ad fail " + title + " #" + str(attempt+1) + ": " + str(err))
+                                    if err == "no_task":
                                         break
                                     time.sleep(5)
-                        # refresh profile sau khi xem xong
-                        try:
-                            prof = gf.me()
-                            storage.update_account(aid, last_state=json.dumps(prof))
-                        except: pass
+                    try:
+                        prof = gf.me()
+                        storage.update_account(aid, last_state=json.dumps(prof))
+                    except Exception:
+                        pass
                 except Exception as e:
-                    storage.log_activity(aid, f"ad err: {str(e)[:80]}")
+                    storage.log_activity(aid, "ad err: " + str(e)[:80])
+
                 try:
                     allowed = storage.get_crop_pref(aid)
                     fs = farm_tick(gf, {}, aid, allowed_crops=allowed)
