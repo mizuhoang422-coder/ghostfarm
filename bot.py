@@ -666,6 +666,10 @@ async def refresh_initdata(aid):
     return False
 
 def start_worker(aid):
+    # Set STATE ngay khi bat
+    from farm_engine import st_set
+    st_set(aid, "action", "⏳ Worker khởi động...")
+
     if aid in WORKERS and WORKERS[aid]["th"].is_alive(): return
     holder = {"stop": False}
     def worker():
