@@ -20,6 +20,9 @@ def init():
             last_state TEXT, created_at INTEGER)""")
         c.execute("""CREATE TABLE IF NOT EXISTS settings(
             key TEXT PRIMARY KEY, value TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS redeemed_codes(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT, acc_id INTEGER, ok INTEGER, msg TEXT, ts INTEGER)""")
         c.execute("""CREATE TABLE IF NOT EXISTS activity(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             acc_id INTEGER, ts INTEGER, msg TEXT)""")
@@ -69,3 +72,22 @@ def get_setting(k, d=None):
     with _c() as c:
         r = c.execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone()
         return r["value"] if r else d
+
+def add_code(code, acc_id, ok, msg):
+    with _c() as c:
+        c.execute("INSERT INTO redeemed_codes(code,acc_id,ok,msg,ts) VALUES(?,?,?,?,?)",
+                  (code, acc_id, 1 if ok else 0, msg, int(__import__("time").time())))
+
+def list_codes(limit=50):
+    with _c() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM redeemed_codes ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+
+def is_code_used(code, acc_id=None):
+    with _c() as c:
+        if acc_id:
+            r = c.execute("SELECT 1 FROM redeemed_codes WHERE code=? AND acc_id=? AND ok=1 LIMIT 1",
+                          (code, acc_id)).fetchone()
+        else:
+            r = c.execute("SELECT 1 FROM redeemed_codes WHERE code=? AND ok=1 LIMIT 1", (code,)).fetchone()
+        return r is not None
