@@ -1,6 +1,14 @@
 import time, uuid, json, re
 from urllib.parse import parse_qsl, unquote, urlparse
 import httpx
+import asyncio
+
+def _ensure_loop():
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
 API = "https://ghostfarm-api.nhathaybip2000.workers.dev/api"
 ORIGIN = "https://ghostfarm-k3m.pages.dev"
@@ -11,6 +19,7 @@ CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
 
 def get_initdata_from_session(session_str, api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627", ref="", bot="ghostfarmx_bot", web_url="https://ghostfarm-k3m.pages.dev/"):
+    _ensure_loop()
     from telethon.sync import TelegramClient
     from telethon.sessions import StringSession
     from telethon.tl.functions.messages import RequestWebViewRequest
@@ -38,6 +47,7 @@ def get_initdata_from_session(session_str, api_id=2040, api_hash="b18441a1ff607e
     return None
 
 def get_me_from_session(session_str, api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627"):
+    _ensure_loop()
     from telethon.sync import TelegramClient
     from telethon.sessions import StringSession
     c = TelegramClient(StringSession(session_str), api_id, api_hash)
@@ -230,3 +240,4 @@ def task_tick(gf, cfg):
             stats["reward"] += (j or {}).get("reward", 0)
         time.sleep(0.5)
     return stats
+
