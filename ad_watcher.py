@@ -1,142 +1,309 @@
-"""Playwright toi uu — chromium-headless-shell, 1 process, RAM thap."""
-import time, json, urllib.parse, threading
+"""Playwright ad watcher — inject Telegram WebView fake de Adsgram/Monetag chay."""
+import time, json, threading
 
 BASE = "https://ghostfarm-k3m.pages.dev/"
-# Lock: chi 1 ad session 1 thoi diem
 _AD_LOCK = threading.Lock()
 
+
 def _inject_script(initdata):
-    return """
+    safe = initdata.replace("\\", "\\\\").replace("`", "\\`")
+    return r"""
 (function(){
-    const idata = `""" + initdata + """`;
+    const idata = `__IDATA__`;
     const pairs = Object.fromEntries(idata.split('&').map(p => {
         const i = p.indexOf('=');
         return [p.slice(0, i), p.slice(i + 1)];
     }).map(([k, v]) => [k, decodeURIComponent(v || '')]));
     let user = {};
     try { user = JSON.parse(pairs.user || '{}'); } catch(e){}
-    window.Telegram = {
-        WebApp: {
-            initData: idata,
-            initDataUnsafe: { user: user, auth_date: pairs.auth_date, hash: pairs.hash, query_id: pairs.query_id, start_param: pairs.start_param },
-            ready: () => {}, expand: () => {}, close: () => {},
-            onEvent: () => {}, offEvent: () => {}, sendData: () => {},
-            openLink: (u) => window.open(u, '_blank'),
-            openTelegramLink: (u) => window.open(u, '_blank'),
-            isExpanded: true, viewportHeight: 851, viewportWidth: 393,
-            colorScheme: 'dark', themeParams: {}, version: '7.0', platform: 'android',
-            MainButton: { show:()=>{}, hide:()=>{}, setText:()=>{}, onClick:()=>{}, offClick:()=>{}, enable:()=>{}, disable:()=>{} },
-            BackButton: { show:()=>{}, hide:()=>{}, onClick:()=>{}, offClick:()=>{} },
-            HapticFeedback: { impactOccurred:()=>{}, notificationOccurred:()=>{}, selectionChanged:()=>{} },
-            showAlert: () => {}, showConfirm: () => {}
-        }
-    };
-})();
-"""
 
-def watch_one_ad(initdata, log=print, max_wait=90):
+    const themeParams = {
+        bg_color: '#0f0f1a', text_color: '#ffffff', hint_color: '#999999',
+        link_color: '#6ab3f3', button_color: '#6ab3f3', button_text_color: '#ffffff',
+        secondary_bg_color: '#1a1a2e'
+    };
+
+    try {
+        Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 });
+        Object.defineProperty(navigator, 'platform', { get: () => 'Linux armv8l' });
+    } catch(e){}
+
+    const webApp = {
+        initData: idata,
+        initDataUnsafe: {
+            user: user,
+            auth_date: parseInt(pairs.auth_date||'0'),
+            hash: pairs.hash || '',
+            query_id: pairs.query_id || '',
+            start_param: pairs.start_param || ''
+        },
+        ready: () => {}, expand: () => {}, close: () => {},
+        onEvent: () => {}, offEvent: () => {}, sendData: () => {},
+        openLink: (u) => { window.location.href = u; },
+        openTelegramLink: (u) => { window.location.href = u; },
+        openInvoice: (url, cb) => { if (cb) setTimeout(()=>cb('cancelled'), 100); },
+        showPopup: (p, cb) => { if (cb) setTimeout(()=>cb('closed'), 100); },
+        showAlert: (m, cb) => { if (cb) setTimeout(()=>cb(), 100); },
+        showConfirm: (m, cb) => { if (cb) setTimeout(()=>cb(true), 100); },
+        isExpanded: true, viewportHeight: 851, viewportStableHeight: 851, viewportWidth: 393,
+        colorScheme: 'dark', themeParams: themeParams, version: '7.0', platform: 'android',
+        headerColor: '#0f0f1a', backgroundColor: '#0f0f1a',
+        MainButton: { text:'', color:'#6ab3f3', textColor:'#ffffff', isVisible:false, isActive:true,
+            show:()=>{}, hide:()=>{}, setText:()=>{}, setParams:()=>{}, onClick:()=>{}, offClick:()=>{}, enable:()=>{}, disable:()=>{}, showProgress:()=>{}, hideProgress:()=>{} },
+        BackButton: { isVisible:false, show:()=>{}, hide:()=>{}, onClick:()=>{}, offClick:()=>{} },
+        HapticFeedback: { impactOccurred:()=>{}, notificationOccurred:()=>{}, selectionChanged:()=>{} },
+        CloudStorage: { setItem:()=>{}, getItem:(k,cb)=>setTimeout(()=>cb(null,null),0), removeItem:()=>{}, getItems:(k,cb)=>setTimeout(()=>cb(null,{}),0) },
+        isVersionAtLeast: () => true,
+        setHeaderColor: () => {}, setBackgroundColor: () => {},
+        enableClosingConfirmation: () => {}, disableClosingConfirmation: () => {},
+        enableVerticalSwipes: () => {}, disableVerticalSwipes: () => {},
+        requestWriteAccess: (cb) => { if (cb) setTimeout(()=>cb(true), 100); },
+        requestContact: (cb) => { if (cb) setTimeout(()=>cb(false), 100); },
+        shareToStory: () => {},
+        readTextFromClipboard: (cb) => { if (cb) setTimeout(()=>cb(''), 100); }
+    };
+
+    const initParams = {
+        tgWebAppData: idata,
+        tgWebAppVersion: '7.0',
+        tgWebAppPlatform: 'android',
+        tgWebAppThemeParams: JSON.stringify(themeParams),
+        tgWebAppStartParam: pairs.start_param || ''
+    };
+
+    const webView = {
+        initParams: initParams,
+        postEvent: (type, data) => { console.log('[WebView] postEvent', type, data); },
+        receiveEvent: (type, data) => {},
+        isIframe: false, isFullscreen: true,
+        onEvent: () => {}, offEvent: () => {}, callbacks: {}
+    };
+
+    const proxy = {
+        postEvent: (type, data) => { console.log('[Proxy] postEvent', type, data); }
+    };
+
+    const tgObj = { WebApp: webApp, WebView: webView, Utils: {} };
+
+    try {
+        Object.defineProperty(window, 'Telegram', {
+            configurable: false, enumerable: true,
+            get: () => tgObj, set: () => {}
+        });
+    } catch(e) { window.Telegram = tgObj; }
+
+    try {
+        Object.defineProperty(window, 'TelegramWebviewProxy', {
+            configurable: false, enumerable: true,
+            get: () => proxy, set: () => {}
+        });
+    } catch(e) { window.TelegramWebviewProxy = proxy; }
+
+    if (!window.external) window.external = { notify: (d) => { console.log('[external]', d); } };
+    else if (!window.external.notify) window.external.notify = (d) => { console.log('[external]', d); };
+
+    if (!location.hash || location.hash.indexOf('tgWebAppData=') < 0) {
+        const frag = 'tgWebAppData=' + encodeURIComponent(idata) +
+                     '&tgWebAppVersion=7.0&tgWebAppPlatform=android' +
+                     '&tgWebAppThemeParams=' + encodeURIComponent(JSON.stringify(themeParams));
+        try { history.replaceState(null, '', location.pathname + location.search + '#' + frag); } catch(e){}
+    }
+})();
+""".replace("__IDATA__", safe)
+
+
+def watch_one_ad(initdata, log=print, max_wait=90, task_name=None):
     if not _AD_LOCK.acquire(blocking=False):
-        log("[ad] co session khac dang chay, skip")
+        log("[ad] busy")
         return {"ok": False, "err": "busy"}
     try:
-        return _watch_inner(initdata, log, max_wait)
+        return _watch_inner(initdata, log, max_wait, task_name)
     finally:
         _AD_LOCK.release()
 
-def _watch_inner(initdata, log, max_wait):
+
+def _watch_inner(initdata, log, max_wait, task_name):
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
         log(f"[ad] no playwright: {e}")
         return {"ok": False, "err": "no_playwright"}
 
-    result = {"ok": False, "progress_before": None, "progress_after": None, "err": None}
+    result = {"ok": False, "progress_before": None, "progress_after": None, "err": None, "task": task_name}
     with sync_playwright() as pw:
         try:
             browser = pw.chromium.launch(
                 headless=True,
                 args=[
                     "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--single-process",              # giam RAM manh
-                    "--no-zygote",
-                    "--disable-extensions",
+                    "--no-sandbox", "--disable-dev-shm-usage",
+                    "--disable-gpu", "--disable-extensions",
                     "--disable-background-networking",
-                    "--disable-sync",
                     "--disable-default-apps",
                     "--disable-features=Translate,site-per-process",
-                    "--js-flags=--max-old-space-size=180",
                 ],
                 chromium_sandbox=False,
             )
         except Exception as e:
             log(f"[ad] launch fail: {e}")
             return {"ok": False, "err": f"launch: {str(e)[:80]}"}
+
         try:
             ctx = browser.new_context(
-                user_agent="Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-                viewport={"width": 393, "height": 851},
-                locale="vi-VN", timezone_id="Asia/Ho_Chi_Minh",
+                user_agent=("Mozilla/5.0 (Linux; Android 13; SM-S918B) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/131.0.0.0 Mobile Safari/537.36"),
+                viewport={"width":393,"height":851},
+                device_scale_factor=2.75,
+                is_mobile=True, has_touch=True,
+                locale="vi-VN",
+                timezone_id="Asia/Ho_Chi_Minh",
                 java_script_enabled=True,
-                service_workers="block",   # tiet kiem RAM
+                service_workers="block",
             )
+            ctx.route("**/*", _route_handler)
             ctx.add_init_script(_inject_script(initdata))
-            page = ctx.new_page()
-            page.route("**/*", _block_heavy)
-            page.goto(BASE, wait_until="domcontentloaded", timeout=25000)
-            log("[ad] page load")
-            page.wait_for_timeout(6000)
 
-            page.evaluate("""() => { const b=[...document.querySelectorAll('a,button,div')].find(x=>/Nhiệm vụ/.test(x.textContent||'')); if(b)b.click(); }""")
+            page = ctx.new_page()
+            page.goto(BASE, wait_until="domcontentloaded", timeout=30000)
+            log("[ad] page load")
+
+            # Cho app boot — doi text khong con "Đang tải"
+            booted = False
+            for i in range(20):
+                page.wait_for_timeout(2000)
+                txt = page.evaluate("() => (document.body.innerText||'').slice(0,300)")
+                if "Đang tải" not in txt and "Chỉ dành cho" not in txt and "Đang gieo" not in txt:
+                    booted = True
+                    log(f"[ad] app booted after {(i+1)*2}s")
+                    break
+            if not booted:
+                log(f"[ad] boot timeout (40s): {txt[:150]}")
+                if "Chỉ dành cho" in txt or "điện thoại" in txt.lower():
+                    result["err"] = "phone_check_fail"
+                else:
+                    result["err"] = "no_boot"
+                return result
+
             page.wait_for_timeout(2500)
 
-            prog0 = _read_prog(page)
-            result["progress_before"] = prog0
-            log(f"[ad] prog={prog0}")
-
-            clicked = page.evaluate("""() => {
-                const cards=[...document.querySelectorAll('.card.task.ad')];
-                for(const c of cards){
-                    const sub=c.querySelector('.sub'); const m=(sub?.textContent||'').match(/(\\d+)\\/(\\d+)/);
-                    if(m && parseInt(m[1])>=parseInt(m[2])) continue;
-                    const btn=c.querySelector('button.btn.btn-gold.btn-sm, .adsgram-slot-btn');
-                    if(btn && /Xem/i.test(btn.textContent)){ btn.click(); return true; }
-                } return false;
+            clicked_tab = page.evaluate("""() => {
+                const cands = [];
+                document.querySelectorAll('*').forEach(el => {
+                    const t = (el.innerText || '').trim();
+                    if (/^nhi[eệ]m\\s*v[uụ]/i.test(t) && t.length < 25) {
+                        const r = el.getBoundingClientRect();
+                        if (r.width > 0 && r.width < 200) cands.push({el, a: r.width*r.height});
+                    }
+                });
+                cands.sort((a,b) => a.a - b.a);
+                if (cands.length === 0) return false;
+                const el = cands[0].el;
+                el.scrollIntoView({block:'center'});
+                el.click();
+                let p = el.parentElement;
+                for (let i = 0; i < 3 && p; i++) { p.click(); p = p.parentElement; }
+                return true;
             }""")
+            if not clicked_tab:
+                result["err"] = "no_tab"
+                return result
+            log("[ad] tab Nhiệm vụ clicked")
+            page.wait_for_timeout(3000)
+
+            prog_map = _read_progress_map(page)
+            result["progress_before"] = prog_map
+            log(f"[ad] progress: {prog_map}")
+
+            target_info = page.evaluate("""(name) => {
+                const cards = [...document.querySelectorAll('.card.task.ad, .card.task')];
+                for (const c of cards) {
+                    const txt = c.innerText || '';
+                    if (name && txt.indexOf(name) < 0) continue;
+                    const m = txt.match(/(\\d+)\\/(\\d+)/);
+                    if (m && parseInt(m[1]) >= parseInt(m[2])) continue;
+                    const title = txt.split('\\n')[0].trim();
+                    const btn = [...c.querySelectorAll('button, .btn')].find(b => /xem|watch/i.test(b.innerText || ''));
+                    if (!btn) continue;
+                    return {title, progress: m ? m[0] : '', found: true};
+                }
+                return {found: false};
+            }""", task_name)
+
+            if not target_info.get("found"):
+                result["err"] = "no_task"
+                log(f"[ad] no watchable task")
+                return result
+
+            log(f"[ad] target: {target_info.get('title')} ({target_info.get('progress')})")
+
+            clicked = page.evaluate("""(name) => {
+                const cards = [...document.querySelectorAll('.card.task.ad, .card.task')];
+                for (const c of cards) {
+                    const txt = c.innerText || '';
+                    if (name && txt.indexOf(name) < 0) continue;
+                    const m = txt.match(/(\\d+)\\/(\\d+)/);
+                    if (m && parseInt(m[1]) >= parseInt(m[2])) continue;
+                    const btn = [...c.querySelectorAll('button, .btn')].find(b => /xem|watch/i.test(b.innerText || ''));
+                    if (btn) { btn.scrollIntoView({block:'center'}); btn.click(); return true; }
+                }
+                return false;
+            }""", task_name)
+
             if not clicked:
-                result["err"] = "no_ad"; return result
+                result["err"] = "no_click"
+                return result
+            log("[ad] Xem clicked, waiting provider...")
 
             deadline = time.time() + max_wait
+            tick = 0
             while time.time() < deadline:
                 page.wait_for_timeout(3000)
-                p1 = _read_prog(page)
-                if p1 != prog0:
-                    result["progress_after"] = p1
+                tick += 1
+                cur_map = _read_progress_map(page)
+                if cur_map != prog_map:
+                    result["progress_after"] = cur_map
                     result["ok"] = True
-                    log(f"[ad] {prog0} -> {p1}")
+                    log(f"[ad] progress changed: {prog_map} -> {cur_map}")
                     return result
-            result["err"] = "timeout"; return result
+                if tick % 5 == 0:
+                    log(f"[ad] waiting ({tick*3}s) prog={cur_map}")
+            result["err"] = "timeout"
+            log(f"[ad] timeout after {max_wait}s")
+            return result
         except Exception as e:
             result["err"] = str(e)[:100]
-            log(f"[ad] {type(e).__name__}: {str(e)[:120]}")
+            log(f"[ad] {type(e).__name__}: {str(e)[:150]}")
             return result
         finally:
             try: browser.close()
             except: pass
 
-def _read_prog(page):
-    try:
-        return page.evaluate("""() => [...document.querySelectorAll('.card.task.ad .sub')].map(s=>s.textContent.trim()).filter(t=>/\\d+\\/\\d+/.test(t)).join('|')""")
-    except: return ""
 
-def _block_heavy(route):
-    """Chan resource nang — anh, video, font"""
+def _read_progress_map(page):
     try:
-        t = route.request.resource_type
+        return page.evaluate("""() => {
+            const out = {};
+            document.querySelectorAll('.card.task.ad, .card.task').forEach(c => {
+                const txt = c.innerText || '';
+                const title = txt.split('\\n')[0].trim();
+                const m = txt.match(/(\\d+)\\/(\\d+)/);
+                if (title && m) out[title] = m[0];
+            });
+            return out;
+        }""")
+    except Exception:
+        return {}
+
+
+def _route_handler(route):
+    try:
         u = route.request.url
-        if t in ("image", "media", "font", "stylesheet"): route.abort(); return
-        if any(x in u for x in ("google", "facebook", "doubleclick", "analytics")): route.abort(); return
+        if "telegram.org" in u and "telegram-web-app.js" in u:
+            route.fulfill(status=200, content_type="application/javascript", body="// blocked")
+            return
         route.continue_()
-    except: route.continue_()
+    except:
+        try: route.continue_()
+        except: pass
+

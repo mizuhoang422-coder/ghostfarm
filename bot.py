@@ -490,23 +490,40 @@ def start_worker(aid):
                     if ts["claims"]: storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
                 except Exception as e:
                     storage.log_activity(aid, f"task err {str(e)[:60]}")
-                # ---- AD WATCHER (thread rieng, khong block farm) ----
+                # ---- AD WATCHER (Playwright) ----
                 try:
-                    last_ad = storage.get_account(aid).get("last_ad_ts") or 0
-                    # 1 lan / 90s / acc
-                    if time.time() - last_ad > 90:
-                        tasks_now = gf.tasks()
-                        ad_todo = [t for t in tasks_now if (t.get("kind") or t.get("type")) == "ad" and (t.get("progress") or 0) < (t.get("target") or 10)]
-                        if ad_todo:
-                            storage.update_account(aid, last_ad_ts=int(time.time()))
-                            STATE[aid] = f"🎬 Xem ad ({len(ad_todo)} task)"
-                            res = watch_one_ad(idata, log=lambda m: storage.log_activity(aid, m))
-                            if res.get("ok"):
-                                STATE[aid] = f"✅ Ad +1: {res.get('progress_after','')}"
-                                storage.log_activity(aid, f"ad OK -> {res.get('progress_after','')}")
-                            else:
-                                STATE[aid] = f"⚠️ Ad fail: {res.get('err','?')}"
-                                storage.log_activity(aid, f"ad fail {res.get('err','')}")
+                    # kiem tra co task ad chua xong khong
+                    tasks_now = gf.tasks()
+                    ad_todo = [t for t in tasks_now
+                               if (t.get("kind") or t.get("type")) == "ad"
+                               and (t.get("progress") or 0) < (t.get("target") or 10)]
+                    if ad_todo:
+                        # xem tung task mot, loop den khi xong hoac fail 3 lan
+                        for t in ad_todo:
+                            title = t.get("title", "ad")
+                            prog = t.get("progress") or 0
+                            target = t.get("target") or 10
+                            STATE[aid] = f"🎬 {title} {prog}/{target}"
+                            storage.log_activity(aid, f"ad start {title} {prog}/{target}")
+                            # thu toi 3 lan
+                            for attempt in range(3):
+                                res = watch_one_ad(idata, log=lambda m: None, max_wait=90, task_name=title)
+                                if res.get("ok"):
+                                    after = (res.get("progress_after") or {}).get(title, "?")
+                                    STATE[aid] = f"✅ {title} {after}"
+                                    storage.log_activity(aid, f"ad OK {title} -> {after}")
+                                    break
+                                else:
+                                    err = res.get("err", "?")
+                                    storage.log_activity(aid, f"ad fail {title} #{attempt+1}: {err}")
+                                    if err in ("no_task",):
+                                        break
+                                    time.sleep(5)
+                        # refresh profile sau khi xem xong
+                        try:
+                            prof = gf.me()
+                            storage.update_account(aid, last_state=json.dumps(prof))
+                        except: pass
                 except Exception as e:
                     storage.log_activity(aid, f"ad err: {str(e)[:80]}")
                 try:
@@ -721,6 +738,7 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return app
+
 
 
 
