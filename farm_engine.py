@@ -11,6 +11,20 @@ API_HASH = "b18441a1ff607e10a989891a5462e627"
 BOT_USER = "ghostfarmx_bot"
 
 STATE = {}  # aid -> text trang thai
+
+
+def st_set(aid, key, val):
+    if aid is None: return
+    if aid not in STATE:
+        STATE[aid] = {"farm": "", "tasks": "", "ad": "", "promo": "", "last": ""}
+    STATE[aid][key] = str(val)[:200]
+    import time as _t
+    STATE[aid]["last"] = _t.strftime("%H:%M:%S")
+
+
+def st_get(aid):
+    return STATE.get(aid, {"farm": "Chua chay", "tasks": "", "ad": "", "promo": "", "last": ""})
+
 CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
 
@@ -301,5 +315,6 @@ def task_tick(gf, cfg, aid=None):
             stats["claims"] += 1; stats["reward"] += (j or {}).get("reward", 0)
         time.sleep(0.5)
     return stats
+
 
 
