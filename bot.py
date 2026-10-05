@@ -480,3 +480,4 @@ def build_app():
     app.add_handler(CallbackQueryHandler(set_cb, pattern=r"^set_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     return app
+
