@@ -257,19 +257,40 @@ def _watch_inner(initdata, log, max_wait, task_name):
 
             deadline = time.time() + max_wait
             tick = 0
+            confirmed = False
             while time.time() < deadline:
                 page.wait_for_timeout(3000)
                 tick += 1
                 cur_map = _read_progress_map(page)
-                if cur_map != prog_map:
-                    result["progress_after"] = cur_map
-                    result["ok"] = True
-                    log(f"[ad] progress changed: {prog_map} -> {cur_map}")
-                    return result
+                # CHI coi la thanh cong khi dict khong rong VA co it nhat 1 gia tri tang
+                if cur_map and cur_map != prog_map:
+                    # kiem tra co task nao tang that khong
+                    for k, v in cur_map.items():
+                        old = prog_map.get(k, "0/0")
+                        try:
+                            old_n = int(old.split("/")[0])
+                            new_n = int(v.split("/")[0])
+                            if new_n > old_n:
+                                result["progress_after"] = cur_map
+                                result["ok"] = True
+                                log(f"[ad] progress TANG: {k} {old} -> {v}")
+                                confirmed = True
+                                break
+                        except Exception:
+                            pass
+                    if confirmed:
+                        # doi them 8s cho provider callback ve backend
+                        log("[ad] chờ provider callback (8s)...")
+                        page.wait_for_timeout(8000)
+                        # doc lai lan cuoi
+                        final_map = _read_progress_map(page)
+                        if final_map:
+                            result["progress_after"] = final_map
+                        return result
                 if tick % 5 == 0:
                     log(f"[ad] waiting ({tick*3}s) prog={cur_map}")
             result["err"] = "timeout"
-            log(f"[ad] timeout after {max_wait}s")
+            log(f"[ad] timeout after {max_wait}s, final={_read_progress_map(page)}")
             return result
         except Exception as e:
             result["err"] = str(e)[:100]
