@@ -881,8 +881,13 @@ def seed_accounts():
                 if idata:
                     storage.update_account(aid, init_data=idata, init_ts=int(time.time()))
                     print(f"[seed] {s.get('name')} initData OK ({len(idata)})")
-                    # Auto enable farm
+                    # Auto enable farm + start worker
                     storage.update_account(aid, farm_running=1)
+                    try:
+                        start_worker(aid)
+                        print(f"[seed] {s.get('name')} worker started")
+                    except Exception as e:
+                        print(f"[seed] {s.get('name')} worker err: {e}")
                 else:
                     print(f"[seed] {s.get('name')} initData fail")
             except Exception as e:
