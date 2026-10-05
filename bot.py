@@ -3,10 +3,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
 from ad_watcher import watch_one_ad
-from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE, CROPS,
+from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE, CROPS, st_set, st_get,
                          get_me_from_session, otp_send_code, otp_sign_in, otp_sign_in_2fa)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+
 CROP_EMOJI = {"wheat":"🌾","barley":"🌿","corn":"🌽","tomato":"🍅","eggplant":"🍆","pumpkin":"🎃"}
 
 ADMIN_UID = 8249205817
@@ -331,25 +332,31 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             try:
                 if a.get("last_state"): prof = json.loads(a["last_state"])
             except: pass
+            aid = a["id"]
             mark = "🟢" if a.get("farm_running") else "🔴"
-            cur = STATE.get(a["id"], "")
-            if not cur:
-                if a.get("farm_running"):
-                    # kiem tra last activity
-                    acts = storage.get_activity(a["id"], 1)
-                    if acts and now - acts[0]["ts"] < 90:
-                        cur = "⏸️ Đang chờ (idle)"
-                    else:
-                        cur = "💤 Chưa hoạt động"
-                else:
-                    cur = "⏹ Đã dừng"
-            lines.append(f"{mark} <b>{a['name']}</b> 🪙{prof.get('coins',0)} 💎{prof.get('gems',0)}")
-            lines.append(f"   <i>{cur}</i>")
+            coins = prof.get("coins", 0)
+            gems = prof.get("gems", 0)
+            st = st_get(aid)
+            # Last activity
+            acts = storage.get_activity(aid, 1)
+            last_str = ""
+            if acts:
+                dt = int(now - acts[0]["ts"])
+                if dt < 60: last_str = f"{dt}s trước"
+                elif dt < 3600: last_str = f"{dt//60}p trước"
+                else: last_str = f"{dt//3600}h trước"
+            lines.append(f"")
+            lines.append(f"{mark} <b>{a['name']}</b>  🪙{coins} 💎{gems}")
+            if st.get("farm"): lines.append(f"   🌾 {st['farm']}")
+            if st.get("tasks"): lines.append(f"   📋 {st['tasks']}")
+            if st.get("ad"): lines.append(f"   🎬 {st['ad']}")
+            if last_str: lines.append(f"   ⏱ {last_str}")
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 Cập nhật", callback_data="live")],
             [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")]
         ])
-        await q.edit_message_text("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+        await q.edit_message_text("
+".join(lines), parse_mode="HTML", reply_markup=kb)
         return
 
     if data == "codes":
@@ -581,6 +588,7 @@ def start_worker(aid):
             try:
                 a = storage.get_account(aid)
                 if not a or not a.get("farm_running"): break
+                st_set(aid, "farm", "Bắt đầu tick...")
                 idata = a.get("init_data")
                 if not idata or (time.time() - (a.get("init_ts") or 0) > IDATA_TTL):
                     if not loop.run_until_complete(refresh_initdata(aid)):
@@ -592,39 +600,34 @@ def start_worker(aid):
                     if ts["claims"]: storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
                 except Exception as e:
                     storage.log_activity(aid, f"task err {str(e)[:60]}")
-                # ---- AD WATCHER (Playwright) ----
+                # ---- AD WATCHER ----
                 try:
-                    for _round in range(20):
+                    for _round in range(5):
                         tasks_now = gf.tasks()
                         ad_todo = [t for t in tasks_now
                                    if (t.get("kind") or t.get("type")) == "ad"
                                    and (t.get("progress") or 0) < (t.get("target") or 10)]
                         if not ad_todo:
                             break
-                        for t in ad_todo:
-                            title = t.get("title", "ad")
-                            prog = t.get("progress") or 0
-                            target = t.get("target") or 10
-                            STATE[aid] = "Xem " + title + " " + str(prog) + "/" + str(target)
-                            storage.log_activity(aid, "ad start " + title + " " + str(prog) + "/" + str(target))
-                            for attempt in range(3):
-                                res = watch_one_ad(idata, log=lambda m: None, max_wait=90, task_name=title)
-                                if res.get("ok"):
-                                    after = (res.get("progress_after") or {}).get(title, "?")
-                                    STATE[aid] = "OK " + title + " " + str(after)
-                                    storage.log_activity(aid, "ad OK " + title + " -> " + str(after))
-                                    break
-                                else:
-                                    err = res.get("err", "?")
-                                    storage.log_activity(aid, "ad fail " + title + " #" + str(attempt+1) + ": " + str(err))
-                                    if err == "no_task":
-                                        break
-                                    time.sleep(5)
+                        t = ad_todo[_round % len(ad_todo)]
+                        title = t.get("title", "ad")
+                        prog = t.get("progress") or 0
+                        target = t.get("target") or 10
+                        st_set(aid, "ad", f"{title} {prog}/{target}")
+                        storage.log_activity(aid, "ad " + title + " " + str(prog) + "/" + str(target))
+                        res = watch_one_ad(idata, log=lambda m: None, max_wait=75, task_name=title)
+                        if res.get("ok"):
+                            after = (res.get("progress_after") or {}).get(title, "?")
+                            st_set(aid, "ad", f"✅ {title} {after}")
+                            storage.log_activity(aid, "ad OK " + title + " -> " + str(after))
+                        else:
+                            err = res.get("err", "?")
+                            st_set(aid, "ad", f"⚠️ {title}: {err}")
+                            storage.log_activity(aid, "ad fail " + title + ": " + str(err))
                     try:
                         prof = gf.me()
                         storage.update_account(aid, last_state=json.dumps(prof))
-                    except Exception:
-                        pass
+                    except Exception: pass
                 except Exception as e:
                     storage.log_activity(aid, "ad err: " + str(e)[:80])
 
