@@ -515,9 +515,11 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             idata = await fetch_initdata_with_ref(new_sess, REF_CODE)
             info = await get_me_from_session(new_sess)
             aid = storage.add_account(st["name"], st["phone"], new_sess, info["uid"] if info else 0)
-            storage.update_account(aid, init_data=idata, init_ts=int(time.time()))
+            storage.update_account(aid, init_data=idata, init_ts=int(time.time()), farm_running=1)
+            try: start_worker(aid)
+            except Exception: pass
             OTP_STATE.pop(u.id, None)
-            await update.message.reply_text(f"✅ Đã thêm acc <b>{st['name']}</b>", parse_mode="HTML", reply_markup=kb_main(u.id))
+            await update.message.reply_text(f"✅ Đã thêm acc <b>{st['name']}</b> — farm đã bật", parse_mode="HTML", reply_markup=kb_main(u.id))
             return
 
     # UI_WAIT flows
