@@ -23,7 +23,17 @@ def st_set(aid, key, val):
 
 
 def st_get(aid):
-    return STATE.get(aid, {"farm": "Chua chay", "tasks": "", "ad": "", "promo": "", "last": ""})
+    val = STATE.get(aid)
+    # Neu khong phai dict (do code cu set string) -> reset
+    if not isinstance(val, dict):
+        STATE[aid] = {"farm": "", "tasks": "", "ad": "", "promo": "", "last": ""}
+        return STATE[aid]
+    # Dam bao du key
+    for k in ("farm", "tasks", "ad", "promo", "last"):
+        if k not in val:
+            val[k] = ""
+    return val
+
 
 CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
