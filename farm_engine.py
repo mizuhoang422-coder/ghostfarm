@@ -24,20 +24,54 @@ def st_set(aid, key, val):
 
 def st_get(aid):
     val = STATE.get(aid)
-    # Neu khong phai dict (do code cu set string) -> reset
     if not isinstance(val, dict):
         STATE[aid] = {"farm": "", "tasks": "", "ad": "", "promo": "", "last": ""}
         return STATE[aid]
-    # Dam bao du key
     for k in ("farm", "tasks", "ad", "promo", "last"):
-        if k not in val:
-            val[k] = ""
+        val.setdefault(k, "")
     return val
+
 
 
 CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
 WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
 
+
+
+
+def fetch_initdata_sync(sess):
+    """Sync version - dung trong thread khong co event loop."""
+    from telethon.sync import TelegramClient
+    from telethon.sessions import StringSession
+    from telethon.tl import functions
+    import urllib.parse, re as _re
+    try:
+        client = TelegramClient(StringSession(sess), API_ID, API_HASH)
+        client.connect()
+        try:
+            if not client.is_user_authorized():
+                return None
+            bot = client.get_entity(BOT_USER)
+            for pl in ("android", "web", "ios"):
+                try:
+                    res = client(functions.messages.RequestWebViewRequest(
+                        peer=bot, bot=bot, platform=pl, url=BASE, from_bot_menu=False))
+                    url = res.url
+                    if "#tgWebAppData=" in url:
+                        fr = url.split("#tgWebAppData=", 1)[1]
+                        raw = _re.split(r"&tgWebAppVersion|&tgWebAppPlatform|&tgWebAppThemeParams", fr)[0]
+                        return urllib.parse.unquote(raw)
+                    if "tgWebAppData=" in url:
+                        fr = url.split("tgWebAppData=", 1)[1]
+                        return urllib.parse.unquote(fr.split("&")[0])
+                except Exception:
+                    pass
+            return None
+        finally:
+            try: client.disconnect()
+            except: pass
+    except Exception:
+        return None
 
 async def fetch_initdata(sess):
     from telethon import TelegramClient

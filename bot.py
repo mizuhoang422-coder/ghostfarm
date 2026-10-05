@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
 from ad_watcher import watch_one_ad
-from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE, CROPS, st_set, st_get,
+from farm_engine import (fetch_initdata_sync, GF, farm_tick, task_tick, fetch_initdata, fetch_initdata_with_ref, STATE, CROPS, st_set, st_get,
                          get_me_from_session, otp_send_code, otp_sign_in, otp_sign_in_2fa)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -773,7 +773,7 @@ def code_watcher_thread():
     threading.Thread(target=run, daemon=True).start()
 
 def process_code(code):
-    """Redeem 1 code vao TAT CA acc dang bat farm (hoac tat ca neu khong co flag)."""
+    """Redeem 1 code vao tat ca acc dang bat farm."""
     all_accs = storage.list_accounts()
     accs = [a for a in all_accs if a.get("farm_running")] or all_accs
     if not accs:
@@ -785,12 +785,9 @@ def process_code(code):
         if storage.is_code_used(code, a["id"]):
             continue
         idata = a.get("init_data")
-        # neu initData cu hoac chua co -> refresh
         if not idata or (time.time() - (a.get("init_ts") or 0) > IDATA_TTL):
             try:
-                loop2 = asyncio.new_event_loop()
-                idata = loop2.run_until_complete(fetch_initdata_with_ref(a["session"], REF_CODE))
-                loop2.close()
+                idata = fetch_initdata_sync(a["session"])
                 if idata:
                     storage.update_account(a["id"], init_data=idata, init_ts=int(time.time()))
             except Exception as e:
@@ -805,12 +802,15 @@ def process_code(code):
             ok, msg = gf.claim_promo(code)
             storage.add_code(code, a["id"], ok, msg)
             storage.log_activity(a["id"], f"auto-code {code} {'OK' if ok else msg}")
-            print(f"[code] {code} acc {a['name']}: {'✅ ' + msg if ok else '❌ ' + msg}")
+            print(f"[code] {code} acc {a['name']}: {'OK ' + msg if ok else 'FAIL ' + msg}")
             if ok: ok_count += 1
         except Exception as e:
             storage.add_code(code, a["id"], False, str(e)[:80])
             print(f"[code] {code} acc {a['name']}: err {str(e)[:60]}")
-    print(f"[code] {code} done — {ok_count}/{len(accs)} OK")
+    print(f"[code] {code} done -- {ok_count}/{len(accs)} OK")
+
+
+
 
 def seed_accounts():
     try:
@@ -837,33 +837,56 @@ def seed_accounts():
 
 
 def scan_history_once():
-    """Quet toan bo history bot 1 lan, redeem het code chua dung"""
+    """Quet toan bo history bot, redeem code chua dung."""
     from telethon.sync import TelegramClient
     from telethon.sessions import StringSession
     accs = storage.list_accounts()
-    if not accs: return
+    if not accs:
+        print("[scan] no accounts"); return
     try:
-        c = TelegramClient(StringSession(accs[0]["session"]), 2040, "b18441a1ff607e10a989891a5462e627")
+        c = TelegramClient(StringSession(accs[0]["session"]), 2040,
+                           "b18441a1ff607e10a989891a5462e627")
         c.connect()
         if not c.is_user_authorized():
-            c.disconnect(); return
+            print("[scan] session dead"); c.disconnect(); return
         bot = c.get_entity("ghostfarmx_bot")
-        found = 0
+        all_codes = []
+        scanned = 0
         for msg in c.iter_messages(bot):
+            scanned += 1
             if not msg.text: continue
             for code in CODE_RE.findall(msg.text):
-                # check co chua o bat ky acc nao chua
-                need = False
-                for a in storage.list_accounts():
-                    if not storage.is_code_used(code, a["id"]):
-                        need = True; break
-                if need:
-                    found += 1
-                    process_code(code)
+                if code not in all_codes:
+                    all_codes.append(code)
         c.disconnect()
-        print(f"[scan] found {found} code chua claim")
+        print(f"[scan] scanned {scanned} msg, {len(all_codes)} codes: {all_codes}")
+        for code in all_codes:
+            for a in storage.list_accounts():
+                if storage.is_code_used(code, a["id"]): continue
+                idata = a.get("init_data")
+                if not idata or (time.time() - (a.get("init_ts") or 0) > IDATA_TTL):
+                    try:
+                        idata = fetch_initdata_sync(a["session"])
+                        if idata:
+                            storage.update_account(a["id"], init_data=idata, init_ts=int(time.time()))
+                    except Exception as e:
+                        print(f"[scan] refresh {a['name']}: {e}")
+                        continue
+                if not idata: continue
+                try:
+                    gf = GF(idata)
+                    ok, msg = gf.claim_promo(code)
+                    storage.add_code(code, a["id"], ok, msg)
+                    storage.log_activity(a["id"], f"scan-code {code} {'OK' if ok else msg}")
+                    print(f"[scan] {code} -> {a['name']}: {'OK' if ok else msg}")
+                except Exception as e:
+                    storage.add_code(code, a["id"], False, str(e)[:80])
+        print(f"[scan] done")
     except Exception as e:
-        print(f"[scan] {e}")
+        print(f"[scan] err: {e}")
+
+
+
 
 def build_app():
     storage.init()
