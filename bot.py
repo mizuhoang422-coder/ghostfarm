@@ -7,6 +7,8 @@ from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdat
                          get_me_from_session, otp_send_code, otp_sign_in, otp_sign_in_2fa)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+CROP_EMOJI = {"wheat":"🌾","barley":"🌿","corn":"🌽","tomato":"🍅","eggplant":"🍆","pumpkin":"🎃"}
+
 ADMIN_UID = 8249205817
 REF_CODE = os.environ.get("REF_CODE", "").strip()
 WORKERS = {}
