@@ -9,7 +9,8 @@ from farm_engine import (GF, farm_tick, task_tick, fetch_initdata, fetch_initdat
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
 
-CROP_EMOJI = {"wheat":"🌾","barley":"🌿","corn":"🌽","tomato":"🍅","eggplant":"🍆","pumpkin":"🎃"}
+
+CROP_EMOJI = {"wheat":"\U0001f33e","barley":"\U0001f33f","corn":"\U0001f33d","tomato":"\U0001f345","eggplant":"\U0001f346","pumpkin":"\U0001f383"}
 
 ADMIN_UID = 8249205817
 REF_CODE = os.environ.get("REF_CODE", "").strip()
@@ -326,39 +327,39 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "live":
         accs = storage.list_accounts()
-        lines = ["📊 <b>XEM TRỰC TIẾP</b>", "━━━━━━━━━━━━━━━━"]
+        out_lines = ["\U0001f4ca <b>XEM TR\u1ef0C TI\u1ebeP</b>", "\u2501" * 16]
         now = time.time()
         for a in accs:
             prof = {}
             try:
                 if a.get("last_state"): prof = json.loads(a["last_state"])
-            except: pass
+            except Exception: pass
             aid = a["id"]
-            mark = "🟢" if a.get("farm_running") else "🔴"
+            mark = "\U0001f7e2" if a.get("farm_running") else "\U0001f534"
             coins = prof.get("coins", 0)
             gems = prof.get("gems", 0)
             st = st_get(aid)
-            # Last activity
             acts = storage.get_activity(aid, 1)
             last_str = ""
             if acts:
                 dt = int(now - acts[0]["ts"])
-                if dt < 60: last_str = f"{dt}s trước"
-                elif dt < 3600: last_str = f"{dt//60}p trước"
-                else: last_str = f"{dt//3600}h trước"
-            lines.append(f"")
-            lines.append(f"{mark} <b>{a['name']}</b>  🪙{coins} 💎{gems}")
-            if st.get("farm"): lines.append(f"   🌾 {st['farm']}")
-            if st.get("tasks"): lines.append(f"   📋 {st['tasks']}")
-            if st.get("ad"): lines.append(f"   🎬 {st['ad']}")
-            if last_str: lines.append(f"   ⏱ {last_str}")
+                if dt < 60: last_str = f"{dt}s"
+                elif dt < 3600: last_str = f"{dt//60}p"
+                else: last_str = f"{dt//3600}h"
+            out_lines.append("")
+            out_lines.append(f"{mark} <b>{a['name']}</b>  \U0001fa99{coins} \U0001f48e{gems}")
+            if st.get("farm"): out_lines.append(f"   \U0001f33e {st['farm']}")
+            if st.get("tasks"): out_lines.append(f"   \U0001f4cb {st['tasks']}")
+            if st.get("ad"): out_lines.append(f"   \U0001f3ac {st['ad']}")
+            if last_str: out_lines.append(f"   \u23f1 {last_str} tr\u01b0\u1edbc")
+        txt = "\n".join(out_lines)
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Cập nhật", callback_data="live")],
-            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu")]
+            [InlineKeyboardButton("\U0001f504 C\u1eadp nh\u1eadt", callback_data="live")],
+            [InlineKeyboardButton("\u2b05\ufe0f Quay l\u1ea1i", callback_data="menu")]
         ])
-        await q.edit_message_text("
-".join(lines), parse_mode="HTML", reply_markup=kb)
+        await q.edit_message_text(txt, parse_mode="HTML", reply_markup=kb)
         return
+
 
     if data == "codes":
         codes = storage.list_codes(60)
