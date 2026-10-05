@@ -1,22 +1,17 @@
-import os, threading, time
+import os, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from bot import build_app, resume_farms
-
+from bot import build_app, resume_farms, code_watcher_thread
 PORT = int(os.environ.get("PORT", 10000))
-
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type","text/plain")
-        self.end_headers()
+        self.send_response(200); self.send_header("Content-Type","text/plain"); self.end_headers()
         self.wfile.write(b"ghostfarm ok")
     def log_message(self, *a, **k): pass
-
 def run_http():
     HTTPServer(("0.0.0.0", PORT), H).serve_forever()
-
 if __name__ == "__main__":
     threading.Thread(target=run_http, daemon=True).start()
     app = build_app()
     resume_farms()
+    code_watcher_thread()
     app.run_polling(allowed_updates=["message","callback_query"], drop_pending_updates=True)
