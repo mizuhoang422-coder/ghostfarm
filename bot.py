@@ -111,9 +111,33 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
-        await q.answer("⛔"); return
+        try: await q.answer("⛔")
+        except: pass
+        return
     data = q.data
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass
+    try:
+        await _cb_router_inner(q, data, ctx)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[CB ERROR] data={data} err={e}\n{tb}")
+        try:
+            await q.edit_message_text(
+                "❌ <b>LOI CALLBACK</b>\n"
+                f"<code>data={data}</code>\n"
+                f"<code>{str(e)[:300]}</code>\n\n"
+                "Check Render logs.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Menu", callback_data="menu")]]))
+        except Exception:
+            pass
+
+
+async def _cb_router_inner(q, data, ctx):
 
     if data == "menu":
         accs = storage.list_accounts()
@@ -415,7 +439,6 @@ async def cb_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(f"🏦 Nhập bank theo mẫu:\n<code>Tên ngân hàng|CTK|STK</code>\nVD: <code>Vietcombank|NGUYEN VAN A|1234567890</code>",
                                    parse_mode="HTML")
         return
-
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     if not is_admin(u.id): return
