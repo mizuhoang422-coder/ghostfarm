@@ -13,28 +13,39 @@ BOT_USER = "ghostfarmx_bot"
 STATE = {}  # aid -> text trang thai
 
 
+
+
+def st_init(aid):
+    if aid not in STATE or not isinstance(STATE[aid], dict):
+        STATE[aid] = {
+            "action": "",
+            "plots": [],
+            "ads": {},
+            "ads_now": "",
+            "tasks": "",
+            "task_now": "",
+            "code": "",
+            "last": "",
+        }
+    # Dam bao du key
+    for k in ("action", "plots", "ads", "ads_now", "tasks", "task_now", "code", "last"):
+        if k not in STATE[aid]:
+            STATE[aid][k] = "" if k not in ("plots", "ads") else ([] if k == "plots" else {})
+    return STATE[aid]
+
+
 def st_set(aid, key, val):
     if aid is None: return
-    if aid not in STATE:
-        STATE[aid] = {"farm": "", "tasks": "", "ad": "", "promo": "", "last": ""}
-    STATE[aid][key] = str(val)[:200]
+    # Force dict neu la string
+    if aid not in STATE or not isinstance(STATE[aid], dict):
+        STATE[aid] = {"action": "", "plots": [], "ads": {}, "ads_now": "", "tasks": "", "task_now": "", "code": "", "last": ""}
+    STATE[aid][key] = val
     import time as _t
     STATE[aid]["last"] = _t.strftime("%H:%M:%S")
 
 
 def st_get(aid):
-    val = STATE.get(aid)
-    if not isinstance(val, dict):
-        STATE[aid] = {"farm": "", "tasks": "", "ad": "", "promo": "", "last": ""}
-        return STATE[aid]
-    for k in ("farm", "tasks", "ad", "promo", "last"):
-        val.setdefault(k, "")
-    return val
-
-
-
-CROPS = ["pumpkin","eggplant","tomato","corn","barley","wheat"]
-WATER_ERR = ("NO_WATER","WATER_EMPTY","ENERGY_LOW","INSUFFICIENT_WATER","WATER_LOW","WATER_ADS_REQUIRED","BOOST_NEEDED","NO_ENERGY")
+    return st_init(aid)
 
 
 
