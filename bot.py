@@ -640,13 +640,6 @@ def start_worker(aid):
                         storage.log_activity(aid, "initData fail"); time.sleep(60); continue
                     a = storage.get_account(aid); idata = a["init_data"]
                 gf = GF(idata)
-                try:
-                    ts = task_tick(gf, {}, aid)
-                    if ts["claims"]:
-                        storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
-                except Exception as e:
-                    storage.log_activity(aid, f"task err {str(e)[:60]}")
-
                 # ---- AD WATCHER ----
                 try:
                     tasks_now = gf.tasks()
@@ -685,6 +678,15 @@ def start_worker(aid):
                                 except Exception: pass
                 except Exception as e:
                     storage.log_activity(aid, f"❌ ad err: {str(e)[:80]}")
+
+                try:
+                    ts = task_tick(gf, {}, aid)
+                    if ts["claims"]:
+                        storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
+                except Exception as e:
+                    storage.log_activity(aid, f"task err {str(e)[:60]}")
+
+
 
 
                 try:
@@ -746,7 +748,7 @@ def code_watcher_thread():
                     # Backfill 100 msg
                     codes = []
                     total = 0
-                    async for msg in client.iter_messages(bot, limit=100):
+                    async for msg in client.iter_messages(bot, limit=500):
                         total += 1
                         if not msg.text: continue
                         for c in CODE_RE.findall(msg.text):
@@ -783,6 +785,30 @@ def process_code(code):
     accs = [a for a in all_accs if a.get("farm_running")] or all_accs
     if not accs:
         print(f"[code] {code}: no acc"); return
+
+    # Check status truoc — skip neu expired
+    first = accs[0]
+    idata0 = first.get("init_data")
+    if not idata0 or (time.time() - (first.get("init_ts") or 0) > IDATA_TTL):
+        idata0 = fetch_initdata_sync(first["session"])
+        if idata0:
+            storage.update_account(first["id"], init_data=idata0, init_ts=int(time.time()))
+    if not idata0:
+        print(f"[code] {code}: no initData"); return
+    try:
+        gf0 = GF(idata0)
+        s, j = gf0.get("/promo/" + code)
+        if s == 200:
+            promo = (j or {}).get("promo") or {}
+            status = promo.get("status", "")
+            if status == "expired":
+                print(f"[code] {code}: EXPIRED -> skip")
+                for a in accs:
+                    storage.add_code(code, a["id"], False, "expired")
+                return
+    except Exception as e:
+        print(f"[code] {code} check err: {e}")
+
     print(f"[code] {code} -> {len(accs)} acc")
     ok_n = 0
     for a in accs:
@@ -805,6 +831,8 @@ def process_code(code):
         except Exception as e:
             storage.add_code(code, a["id"], False, str(e)[:80])
     print(f"[code] {code} done {ok_n}/{len(accs)}")
+
+
 
 
 # ============ SEED ============
