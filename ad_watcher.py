@@ -188,6 +188,29 @@ def _watch_inner(initdata, log, max_wait, task_name):
 
             page.wait_for_timeout(2500)
 
+            # Buoc 0: Check force-join gate (Tham gia kenh)
+            await asyncio.sleep(0)  # yield
+            for _fj in range(3):
+                page.wait_for_timeout(2000)
+                joined = page.evaluate("""() => {
+                    const txt = document.body.innerText || '';
+                    if (/Tôi đã tham gia|Đã tham gia|I've joined|I have joined/i.test(txt)) {
+                        // Tim nut
+                        const btns = [...document.querySelectorAll('button, .btn, a, div[role=button]')];
+                        for (const b of btns) {
+                            if (/Tôi đã tham gia|Đã tham gia|I've joined/i.test(b.innerText || '')) {
+                                b.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }""")
+                if joined:
+                    print("[ad] force-join: clicked 'Tôi đã tham gia'")
+                    page.wait_for_timeout(3000)
+                    break
+
             # Buoc 1: Doi app boot xong (co card task hoac nav)
             print("[ad] doi app render...")
             try:

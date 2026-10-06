@@ -52,12 +52,16 @@ def run_http():
     HTTPServer(("0.0.0.0", PORT), H).serve_forever()
 
 if __name__ == "__main__":
-    # Set event loop cho MainThread TRUOC khi run_polling
+    # Set event loop cho MainThread
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+
+    # Doi instance cu tat (tranh Conflict getUpdates)
+    print("[main] doi 20s cho instance cu tat...")
+    time.sleep(20)
 
     threading.Thread(target=run_http, daemon=True).start()
     app = build_app()
