@@ -188,18 +188,35 @@ def _watch_inner(initdata, log, max_wait, task_name):
 
             page.wait_for_timeout(2500)
 
-            # Retry click tab — manh hon
-            clicked_tab = False
-            for _try in range(8):
-                # Doi app render day du
-                page.wait_for_timeout(1500)
+            # Buoc 1: Doi app boot xong (co card task hoac nav)
+            print("[ad] doi app render...")
+            try:
+                page.wait_for_selector(".card, nav, [class*='card'], [class*='task']", timeout=30000)
+                print("[ad] card/nav xuat hien")
+            except Exception:
+                print("[ad] khong thay card, thu click tab van")
 
+            page.wait_for_timeout(3000)
+
+            # Buoc 2: Retry click tab 15 lan
+            clicked_tab = False
+            for _try in range(15):
+                # Kiem tra da click chua (task card visible)
+                has_card = page.evaluate("""() => {
+                    return document.querySelectorAll('.card.task.ad, .card.task').length > 0;
+                }""")
+                if has_card:
+                    clicked_tab = True
+                    print(f"[ad] task card visible (try {_try})")
+                    break
+
+                # Thu click
                 clicked_tab = page.evaluate("""() => {
-                    // Cach 1: tim text "Nhiệm vụ"
+                    // Cach 1: text "Nhiệm vụ"
                     const cands = [];
                     document.querySelectorAll('*').forEach(el => {
                         const t = (el.innerText || '').trim();
-                        if (/^nhi[eệ]m\s*v[uụ]/i.test(t) && t.length < 25) {
+                        if (/^nhi[eệ]m\\s*v[uụ]/i.test(t) && t.length < 25) {
                             const r = el.getBoundingClientRect();
                             if (r.width > 0 && r.width < 200 && r.height > 0) {
                                 cands.push({el, a: r.width*r.height});
@@ -219,23 +236,38 @@ def _watch_inner(initdata, log, max_wait, task_name):
                     const navs = document.querySelectorAll('nav, [role=tablist], .nav, .tabbar, .bottom-nav, .tabs');
                     for (const n of navs) {
                         for (const k of n.children) {
-                            if (/nhi[eệ]m/i.test(k.innerText || '')) {
-                                k.click(); return true;
-                            }
+                            if (/nhi[eệ]m/i.test(k.innerText || '')) { k.click(); return true; }
                         }
                     }
-                    // Cach 3: button cuoi cung
+                    // Cach 3: button
                     const btns = [...document.querySelectorAll('button')];
                     for (const b of btns) {
-                        if (/nhi[eệ]m/i.test(b.innerText || '')) {
-                            b.click(); return true;
-                        }
+                        if (/nhi[eệ]m/i.test(b.innerText || '')) { b.click(); return true; }
                     }
                     return false;
                 }""")
                 if clicked_tab:
-                    break
+                    # Doi 2s sau click
+                    page.wait_for_timeout(2000)
+                    # Kiem tra lai
+                    has_card2 = page.evaluate("""() => document.querySelectorAll('.card.task.ad, .card.task').length > 0""")
+                    if has_card2:
+                        print(f"[ad] card visible after click (try {_try})")
+                        break
 
+                page.wait_for_timeout(1500)
+
+            if not clicked_tab:
+                # Screenshot debug
+                try:
+                    from pathlib import Path as _P
+                    dbg = _P.home() / ".tg_toolkit" / "ad_debug"
+                    dbg.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(dbg / "no_tab.png"), full_page=True)
+                    # Dump text
+                    body_txt = page.evaluate("() => (document.body.innerText || '').slice(0, 300)")
+                    print(f"[ad] no_tab dump: {body_txt}")
+                except Exception: pass
             if not clicked_tab:
                 # Screenshot debug
                 try:
@@ -367,4 +399,5 @@ def _route_handler(route):
     except:
         try: route.continue_()
         except: pass
+
 
