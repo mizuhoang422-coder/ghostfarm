@@ -691,8 +691,11 @@ def start_worker(aid):
                         fresh = fetch_initdata_sync(a["session"])
                         if fresh:
                             idata = fresh
-                            storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))
-                        t = max(ad_todo, key=lambda x: (x.get("target") or 10) - (x.get("progress") or 0))
+                            storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))                        # Round-robin: xoay vong theo index, khong lap 1 task
+                        rr_key = f"_rr_{aid}"
+                        rr_idx = getattr(__import__("bot"), rr_key, 0) if hasattr(__import__("bot"), rr_key) else 0
+                        t = ad_todo[rr_idx % len(ad_todo)]
+                        setattr(__import__("bot"), rr_key, rr_idx + 1)
                         title = t.get("title", "ad")
                         prog = t.get("progress") or 0
                         target = t.get("target") or 10

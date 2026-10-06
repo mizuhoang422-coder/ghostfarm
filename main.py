@@ -6,8 +6,46 @@ PORT = int(os.environ.get("PORT", 10000))
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path.startswith("/debug/ad"):
+            self._debug_ad(); return
+        if self.path.startswith("/debug/status"):
+            self._debug_status(); return
         self.send_response(200); self.send_header("Content-Type","text/plain"); self.end_headers()
         self.wfile.write(b"ghostfarm ok")
+    def _debug_status(self):
+        import storage
+        accs = storage.list_accounts()
+        out = []
+        for a in accs:
+            out.append({
+                "id": a["id"], "name": a["name"], "farm": a.get("farm_running"),
+                "initData": len(a.get("init_data") or ""),
+                "init_ts": a.get("init_ts"),
+            })
+        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+        self.wfile.write(__import__("json").dumps(out, ensure_ascii=False).encode())
+    def _debug_ad(self):
+        import storage, json, time as _t
+        from farm_engine import fetch_initdata_sync
+        from ad_watcher import watch_one_ad
+        accs = storage.list_accounts()
+        if not accs:
+            self.send_response(400); self.end_headers(); return
+        a = accs[0]
+        logs = []
+        def log(m): logs.append(str(m))
+        try:
+            idata = fetch_initdata_sync(a["session"])
+            if not idata:
+                logs.append("fetch_initdata FAIL")
+                result = {"err": "no_initdata"}
+            else:
+                storage.update_account(a["id"], init_data=idata, init_ts=int(_t.time()))
+                result = watch_one_ad(idata, log=log, max_wait=60, task_name="Adsgram")
+        except Exception as e:
+            result = {"err": str(e)[:200]}
+        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+        self.wfile.write(json.dumps({"logs": logs, "result": result}, ensure_ascii=False).encode())
     def log_message(self, *a, **k): pass
 
 def run_http():
