@@ -634,12 +634,17 @@ def start_worker(aid):
             try:
                 a = storage.get_account(aid)
                 if not a or not a.get("farm_running"): break
+                st_set(aid, "action", "🔑 Check initData...")
                 idata = a.get("init_data")
                 if not idata or (time.time() - (a.get("init_ts") or 0) > IDATA_TTL):
+                    st_set(aid, "action", "🔄 Refresh initData...")
                     if not refresh_idata(aid):
+                        st_set(aid, "action", "❌ initData fail — chờ 60s")
                         storage.log_activity(aid, "initData fail"); time.sleep(60); continue
                     a = storage.get_account(aid); idata = a["init_data"]
+                st_set(aid, "action", "🔐 Đang login game...")
                 gf = GF(idata)
+                st_set(aid, "action", "✅ Login OK — bắt đầu tick")
                 # ---- AD WATCHER ----
                 try:
                     tasks_now = gf.tasks()
@@ -680,6 +685,7 @@ def start_worker(aid):
                     storage.log_activity(aid, f"❌ ad err: {str(e)[:80]}")
 
                 try:
+                    st_set(aid, "action", "📋 Chạy task smartlink...")
                     ts = task_tick(gf, {}, aid)
                     if ts["claims"]:
                         storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
@@ -690,6 +696,7 @@ def start_worker(aid):
 
 
                 try:
+                    st_set(aid, "action", "🌾 Chạy farm...")
                     fs = farm_tick(gf, {}, aid, storage.get_crop_pref(aid))
                     if fs["planted"] or fs["harvested"]:
                         storage.log_activity(aid, f"farm P{fs['planted']} H{fs['harvested']} +{fs['earned_gems']}g")
@@ -703,6 +710,7 @@ def start_worker(aid):
                     except: pass
             except Exception as e:
                 storage.log_activity(aid, f"worker err {str(e)[:80]}")
+            st_set(aid, "action", f"✅ Tick xong — chờ 30s")
             for _ in range(30):
                 if holder["stop"]: break
                 time.sleep(1)
