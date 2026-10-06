@@ -46,8 +46,9 @@ def kb_acc(aid):
         [InlineKeyboardButton("🌾 Chọn cây", callback_data=f"crop:{aid}")],
         [InlineKeyboardButton("💰 Rút VND", callback_data=f"wd:{aid}"),
          InlineKeyboardButton("💱 Coin→Gem", callback_data=f"cv:{aid}")],
-        [InlineKeyboardButton("🏦 Cài bank", callback_data=f"bank:{aid}"),
-         InlineKeyboardButton("🔄 Refresh", callback_data=f"rf:{aid}")],
+        [InlineKeyboardButton("📊 Log", callback_data=f"log:{aid}"),
+         InlineKeyboardButton("🏦 Cài bank", callback_data=f"bank:{aid}")],
+        [InlineKeyboardButton("🔄 Refresh", callback_data=f"rf:{aid}")],
         [InlineKeyboardButton("🗑 Xoá", callback_data=f"del:{aid}"),
          InlineKeyboardButton("⬅️ Quay lại", callback_data="list")],
     ])
@@ -324,6 +325,22 @@ async def _cb_inner(q, data, ctx):
         await render_crop(q, aid)
         return
 
+    if data.startswith("log:"):
+        aid = int(data.split(":")[1])
+        a = storage.get_account(aid)
+        acts = storage.get_activity(aid, 30)
+        lines = [f"📊 <b>LOG {a['name']}</b> (30 hoạt động gần nhất)", "━━━━━━━━━━━━━━━━"]
+        if not acts:
+            lines.append("<i>Chưa có</i>")
+        for r in acts:
+            t = time.strftime("%d/%m %H:%M:%S", time.localtime(r["ts"]))
+            lines.append(f"<code>{t}</code> {r['msg'][:80]}")
+        txt = "\n".join(lines)
+        if len(txt) > 4000: txt = txt[:3900] + "..."
+        await q.edit_message_text(txt, parse_mode="HTML",
+                                   reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Quay lại", callback_data=f"acc:{aid}")]]))
+        return
+
     if data.startswith("bank:"):
         aid = int(data.split(":")[1])
         UI_WAIT[q.from_user.id] = {"type": "bank", "aid": aid}
@@ -402,6 +419,9 @@ async def render_live(q):
         ads = st.get("ads") or {}
         if ads:
             parts.append(f"   📺 {' · '.join(f'{k}:{v}' for k,v in ads.items())}")
+
+        ads_now = st.get("ads_now")
+        if ads_now: parts.append(f"   🎬 {ads_now}")
 
         tasks = st.get("tasks")
         if tasks: parts.append(f"   📋 {tasks}")
