@@ -189,7 +189,6 @@ def _watch_inner(initdata, log, max_wait, task_name):
             page.wait_for_timeout(2500)
 
             # Buoc 0: Check force-join gate (Tham gia kenh)
-            await asyncio.sleep(0)  # yield
             for _fj in range(3):
                 page.wait_for_timeout(2000)
                 joined = page.evaluate("""() => {
@@ -422,5 +421,6 @@ def _route_handler(route):
     except:
         try: route.continue_()
         except: pass
+
 
 
