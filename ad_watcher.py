@@ -188,41 +188,63 @@ def _watch_inner(initdata, log, max_wait, task_name):
 
             page.wait_for_timeout(2500)
 
-            # Retry click tab 5 lan
+            # Retry click tab — manh hon
             clicked_tab = False
-            for _try in range(5):
+            for _try in range(8):
+                # Doi app render day du
+                page.wait_for_timeout(1500)
+
                 clicked_tab = page.evaluate("""() => {
+                    // Cach 1: tim text "Nhiệm vụ"
                     const cands = [];
                     document.querySelectorAll('*').forEach(el => {
                         const t = (el.innerText || '').trim();
-                        if (/^nhi[eệ]m\\s*v[uụ]/i.test(t) && t.length < 25) {
+                        if (/^nhi[eệ]m\s*v[uụ]/i.test(t) && t.length < 25) {
                             const r = el.getBoundingClientRect();
-                            if (r.width > 0 && r.width < 200) cands.push({el, a: r.width*r.height});
+                            if (r.width > 0 && r.width < 200 && r.height > 0) {
+                                cands.push({el, a: r.width*r.height});
+                            }
                         }
                     });
                     cands.sort((a,b) => a.a - b.a);
-                    if (cands.length === 0) return false;
-                    const el = cands[0].el;
-                    el.scrollIntoView({block:'center'});
-                    el.click();
-                    let p = el.parentElement;
-                    for (let i = 0; i < 3 && p; i++) { p.click(); p = p.parentElement; }
-                    return true;
-                }""")
-                if clicked_tab: break
-                page.wait_for_timeout(2000)
-            if not clicked_tab:
-                # Thu click qua nav bar selector
-                clicked_tab = page.evaluate("""() => {
-                    const nav = document.querySelector('nav, [role=tablist], .nav, .tabbar, .bottom-nav');
-                    if (nav) {
-                        const kids = [...nav.children];
-                        for (const k of kids) {
-                            if (/nhi[eệ]m/i.test(k.innerText || '')) { k.click(); return true; }
+                    if (cands.length > 0) {
+                        const el = cands[0].el;
+                        el.scrollIntoView({block:'center'});
+                        el.click();
+                        let p = el.parentElement;
+                        for (let i = 0; i < 3 && p; i++) { p.click(); p = p.parentElement; }
+                        return true;
+                    }
+                    // Cach 2: nav bar
+                    const navs = document.querySelectorAll('nav, [role=tablist], .nav, .tabbar, .bottom-nav, .tabs');
+                    for (const n of navs) {
+                        for (const k of n.children) {
+                            if (/nhi[eệ]m/i.test(k.innerText || '')) {
+                                k.click(); return true;
+                            }
+                        }
+                    }
+                    // Cach 3: button cuoi cung
+                    const btns = [...document.querySelectorAll('button')];
+                    for (const b of btns) {
+                        if (/nhi[eệ]m/i.test(b.innerText || '')) {
+                            b.click(); return true;
                         }
                     }
                     return false;
                 }""")
+                if clicked_tab:
+                    break
+
+            if not clicked_tab:
+                # Screenshot debug
+                try:
+                    from pathlib import Path as _P
+                    dbg = _P.home() / ".tg_toolkit" / "ad_debug"
+                    dbg.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(dbg / "no_tab.png"), full_page=True)
+                    print(f"[ad] screenshot saved: {dbg / 'no_tab.png'}")
+                except Exception: pass
             if not clicked_tab:
                 result["err"] = "no_tab"
                 return result
