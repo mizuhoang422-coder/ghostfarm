@@ -303,7 +303,7 @@ def _watch_inner(initdata, log, max_wait, task_name):
             }""", task_name)
 
             if not target_info.get("found"):
-                result["err"] = "no_task"
+                result["err"] = "no_watch_btn"
                 log(f"[ad] no watchable task")
                 return result
 
@@ -323,7 +323,7 @@ def _watch_inner(initdata, log, max_wait, task_name):
             }""", task_name)
 
             if not clicked:
-                result["err"] = "no_click"
+                result["err"] = "no_watch_btn"
                 return result
             log("[ad] Xem clicked, waiting provider...")
 

@@ -684,7 +684,8 @@ def start_worker(aid):
                     tasks_now = gf.tasks()
                     ad_todo = [t for t in tasks_now
                                if (t.get("kind") or t.get("type")) == "ad"
-                               and (t.get("progress") or 0) < (t.get("target") or 10)]
+                               and (t.get("progress") or 0) < (t.get("target") or 10)
+                                   and t.get("title") != "Adsgram Task"]
                     if ad_todo:
                         # Refresh initData
                         fresh = fetch_initdata_sync(a["session"])
@@ -906,5 +907,6 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     return app
+
 
 
