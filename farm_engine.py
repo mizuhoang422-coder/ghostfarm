@@ -203,15 +203,45 @@ class GF:
         return False
 
     def claim_promo(self, code):
+        """Flow: lookup -> ad-session -> ads/complete -> redeem."""
+        # 1. Lookup
         s, j = self.get("/promo/"+code)
-        if s != 200: return False, f"info_{s}"
-        for path, body in [("/promo/"+code+"/claim",{}),
-                           ("/promo/redeem",{"code":code}),
-                           ("/promo/claim",{"code":code})]:
-            s2, j2 = self.post(path, body)
-            if s2 == 200 and (j2 or {}).get("ok"):
-                return True, "ok"
-        return False, "claim_fail"
+        if s != 200:
+            return False, f"lookup_{s}"
+        promo = (j or {}).get("promo") or {}
+        status = promo.get("status", "")
+        if promo.get("redeemed"):
+            return False, "already_redeemed"
+        if status == "expired":
+            return False, "expired"
+        if status != "available" and status != "":
+            return False, f"status_{status}"
+
+        # 2. Ad session
+        s, j = self.post(f"/promo/{code}/ad-session")
+        if s != 200:
+            return False, f"session_{s}"
+        sid = (j or {}).get("sessionId")
+        if not sid:
+            return False, "no_session_id"
+
+        # 3. Complete ad (backend auto accept)
+        mws = j.get("minWatchSec", 6)
+        time.sleep(mws + 1)
+        s, j = self.post("/ads/complete", {"sessionId": sid, "slot": 0})
+        if s != 200:
+            return False, f"complete_{s}"
+
+        # 4. Redeem
+        s, j = self.post(f"/promo/{code}/redeem", {"adSessionId": sid})
+        if s == 200 and (j or {}).get("ok"):
+            coins = (j or {}).get("coins", 0)
+            return True, f"ok +{coins}"
+        code_err = (j or {}).get("code", "")
+        if code_err == "PROMO_USED":
+            return False, "already_redeemed"
+        return False, f"redeem_{s}_{code_err}"
+
 
 
 def farm_tick(gf, cfg, aid=None, allowed_crops=None):
