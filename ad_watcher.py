@@ -187,24 +187,41 @@ def _watch_inner(initdata, log, max_wait, task_name):
 
             page.wait_for_timeout(2500)
 
-            clicked_tab = page.evaluate("""() => {
-                const cands = [];
-                document.querySelectorAll('*').forEach(el => {
-                    const t = (el.innerText || '').trim();
-                    if (/^nhi[eệ]m\\s*v[uụ]/i.test(t) && t.length < 25) {
-                        const r = el.getBoundingClientRect();
-                        if (r.width > 0 && r.width < 200) cands.push({el, a: r.width*r.height});
+            # Retry click tab 5 lan
+            clicked_tab = False
+            for _try in range(5):
+                clicked_tab = page.evaluate("""() => {
+                    const cands = [];
+                    document.querySelectorAll('*').forEach(el => {
+                        const t = (el.innerText || '').trim();
+                        if (/^nhi[eệ]m\\s*v[uụ]/i.test(t) && t.length < 25) {
+                            const r = el.getBoundingClientRect();
+                            if (r.width > 0 && r.width < 200) cands.push({el, a: r.width*r.height});
+                        }
+                    });
+                    cands.sort((a,b) => a.a - b.a);
+                    if (cands.length === 0) return false;
+                    const el = cands[0].el;
+                    el.scrollIntoView({block:'center'});
+                    el.click();
+                    let p = el.parentElement;
+                    for (let i = 0; i < 3 && p; i++) { p.click(); p = p.parentElement; }
+                    return true;
+                }""")
+                if clicked_tab: break
+                page.wait_for_timeout(2000)
+            if not clicked_tab:
+                # Thu click qua nav bar selector
+                clicked_tab = page.evaluate("""() => {
+                    const nav = document.querySelector('nav, [role=tablist], .nav, .tabbar, .bottom-nav');
+                    if (nav) {
+                        const kids = [...nav.children];
+                        for (const k of kids) {
+                            if (/nhi[eệ]m/i.test(k.innerText || '')) { k.click(); return true; }
+                        }
                     }
-                });
-                cands.sort((a,b) => a.a - b.a);
-                if (cands.length === 0) return false;
-                const el = cands[0].el;
-                el.scrollIntoView({block:'center'});
-                el.click();
-                let p = el.parentElement;
-                for (let i = 0; i < 3 && p; i++) { p.click(); p = p.parentElement; }
-                return true;
-            }""")
+                    return false;
+                }""")
             if not clicked_tab:
                 result["err"] = "no_tab"
                 return result

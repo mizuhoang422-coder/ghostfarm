@@ -2,6 +2,7 @@ import os, time, json, asyncio, threading, re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import storage
+from ad_watcher import watch_one_ad
 from farm_engine import (GF, farm_tick, task_tick, fetch_initdata_sync, get_me_sync,
                          st_init, st_set, st_get, CROPS, API_ID, API_HASH)
 
@@ -645,6 +646,36 @@ def start_worker(aid):
                         storage.log_activity(aid, f"task +{ts['reward']} ({ts['claims']})")
                 except Exception as e:
                     storage.log_activity(aid, f"task err {str(e)[:60]}")
+
+                # ---- AD WATCHER ----
+                try:
+                    tasks_now = gf.tasks()
+                    ad_todo = [t for t in tasks_now
+                               if (t.get("kind") or t.get("type")) == "ad"
+                               and (t.get("progress") or 0) < (t.get("target") or 10)]
+                    if ad_todo:
+                        # Refresh initData truoc (Adsgram reject neu qua 10 phut)
+                        fresh = fetch_initdata_sync(a["session"])
+                        if fresh:
+                            idata = fresh
+                            storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))
+                        t = ad_todo[0]
+                        title = t.get("title", "ad")
+                        prog = t.get("progress") or 0
+                        target = t.get("target") or 10
+                        st_set(aid, "ads_now", f"🎬 {title} {prog}/{target}")
+                        storage.log_activity(aid, f"ad start {title} {prog}/{target}")
+                        res = watch_one_ad(idata, log=lambda m: None, max_wait=90, task_name=title)
+                        if res.get("ok"):
+                            after = (res.get("progress_after") or {}).get(title, "?")
+                            st_set(aid, "ads_now", f"✅ {title} {after}")
+                            storage.log_activity(aid, f"ad OK {title} -> {after}")
+                        else:
+                            err = res.get("err", "?")
+                            st_set(aid, "ads_now", f"❌ {title}: {err}")
+                            storage.log_activity(aid, f"ad fail {title}: {err}")
+                except Exception as e:
+                    storage.log_activity(aid, f"ad err: {str(e)[:80]}")
                 try:
                     fs = farm_tick(gf, {}, aid, storage.get_crop_pref(aid))
                     if fs["planted"] or fs["harvested"]:
