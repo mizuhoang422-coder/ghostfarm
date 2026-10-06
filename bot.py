@@ -418,7 +418,21 @@ async def render_live(q):
 
         ads = st.get("ads") or {}
         if ads:
-            parts.append(f"   📺 {' · '.join(f'{k}:{v}' for k,v in ads.items())}")
+            ad_parts = []
+            for k, v in ads.items():
+                # Format: name:prog/target
+                ad_parts.append(f"{k} {v}")
+            line = " · ".join(ad_parts)
+            # Chia thanh nhieu dong neu qua dai
+            if len(line) > 45:
+                # Chia 2 dong
+                mid = len(ad_parts) // 2
+                line1 = " · ".join(ad_parts[:mid])
+                line2 = " · ".join(ad_parts[mid:])
+                parts.append(f"   📺 {line1}")
+                parts.append(f"      {line2}")
+            else:
+                parts.append(f"   📺 {line}")
 
         ads_now = st.get("ads_now")
         if ads_now: parts.append(f"   🎬 {ads_now}")
