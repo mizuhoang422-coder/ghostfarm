@@ -113,8 +113,9 @@ def _inject_script(initdata):
 
 
 def watch_one_ad(initdata, log=print, max_wait=90, task_name=None):
-    if not _AD_LOCK.acquire(blocking=False):
-        log("[ad] busy")
+    # Doi lock toi 180s thay vi fail ngay
+    if not _AD_LOCK.acquire(timeout=180):
+        log("[ad] lock timeout 180s")
         return {"ok": False, "err": "busy"}
     try:
         return _watch_inner(initdata, log, max_wait, task_name)
