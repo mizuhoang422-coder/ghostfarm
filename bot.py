@@ -654,7 +654,7 @@ def start_worker(aid):
                                if (t.get("kind") or t.get("type")) == "ad"
                                and (t.get("progress") or 0) < (t.get("target") or 10)]
                     if ad_todo:
-                        # Refresh initData truoc (Adsgram reject neu qua 10 phut)
+                        # Refresh initData
                         fresh = fetch_initdata_sync(a["session"])
                         if fresh:
                             idata = fresh
@@ -665,17 +665,28 @@ def start_worker(aid):
                         target = t.get("target") or 10
                         st_set(aid, "ads_now", f"🎬 {title} {prog}/{target}")
                         storage.log_activity(aid, f"ad start {title} {prog}/{target}")
-                        res = watch_one_ad(idata, log=lambda m: None, max_wait=90, task_name=title)
+                        res = watch_one_ad(idata, log=lambda m: storage.log_activity(aid, f"ad {m}"), max_wait=90, task_name=title)
                         if res.get("ok"):
                             after = (res.get("progress_after") or {}).get(title, "?")
                             st_set(aid, "ads_now", f"✅ {title} {after}")
-                            storage.log_activity(aid, f"ad OK {title} -> {after}")
+                            storage.log_activity(aid, f"✅ ad OK {title} {prog} -> {after}")
                         else:
                             err = res.get("err", "?")
                             st_set(aid, "ads_now", f"❌ {title}: {err}")
-                            storage.log_activity(aid, f"ad fail {title}: {err}")
+                            storage.log_activity(aid, f"❌ ad FAIL {title}: {err}")
+                            # Notify admin neu fail 2 lan lien tiep
+                            cnt = sum(1 for x in storage.get_activity(aid, 5) if "❌ ad FAIL" in x.get("msg", ""))
+                            if cnt >= 2:
+                                try:
+                                    import asyncio as _a
+                                    _a.run_coroutine_threadsafe(
+                                        notify_admin("⚠️ <b>AD FAIL</b> acc <b>" + str(a['name']) + "</b>\nTask: " + str(title) + "\nLỗi: <code>" + str(err) + "</code>"),
+                                        _bot_loop[0])
+                                except Exception: pass
                 except Exception as e:
-                    storage.log_activity(aid, f"ad err: {str(e)[:80]}")
+                    storage.log_activity(aid, f"❌ ad err: {str(e)[:80]}")
+
+
                 try:
                     fs = farm_tick(gf, {}, aid, storage.get_crop_pref(aid))
                     if fs["planted"] or fs["harvested"]:
@@ -707,45 +718,65 @@ def resume_workers():
 
 # ============ WATCHER ============
 def code_watcher_thread():
+    """Async watcher — dung telethon async (khong .sync)."""
     def run():
-        loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-        time.sleep(20)
-        while True:
-            try:
-                accs = storage.list_accounts()
-                if not accs:
-                    time.sleep(60); continue
-                sess = accs[0]["session"]
-                from telethon import TelegramClient, events
-                from telethon.sessions import StringSession
-                client = TelegramClient(StringSession(sess), API_ID, API_HASH, loop=loop)
-                client.connect()
-                if not client.is_user_authorized():
-                    client.disconnect(); time.sleep(120); continue
-                bot = client.get_entity("ghostfarmx_bot")
-                print("[watcher] connected")
-                codes = []
-                total = 0
-                for msg in client.iter_messages(bot):
-                    total += 1
-                    if not msg.text: continue
-                    for c in CODE_RE.findall(msg.text):
-                        if c not in codes: codes.append(c)
-                print(f"[watcher] backfill: {total} msg, {len(codes)} codes: {codes}")
-                for c in codes:
-                    if any(not storage.is_code_used(c, a["id"]) for a in storage.list_accounts()):
-                        process_code(c)
-                @client.on(events.NewMessage(chats=bot))
-                async def on_new(ev):
-                    for c in CODE_RE.findall(ev.message.text or ""):
-                        print(f"[watcher] NEW {c}")
-                        process_code(c)
-                print("[watcher] listening...")
-                loop.run_until_complete(client.disconnected)
-                client.disconnect()
-            except Exception as e:
-                print(f"[watcher] {e}"); time.sleep(60)
+        import asyncio
+        from telethon import TelegramClient, events
+        from telethon.sessions import StringSession
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        async def _watch():
+            time.sleep(20)
+            while True:
+                try:
+                    accs = storage.list_accounts()
+                    if not accs:
+                        await asyncio.sleep(60); continue
+                    sess = accs[0]["session"]
+                    client = TelegramClient(StringSession(sess), API_ID, API_HASH)
+                    await client.connect()
+                    if not await client.is_user_authorized():
+                        await client.disconnect()
+                        await asyncio.sleep(120); continue
+                    bot = await client.get_entity("ghostfarmx_bot")
+                    print("[watcher] connected")
+
+                    # Backfill 100 msg
+                    codes = []
+                    total = 0
+                    async for msg in client.iter_messages(bot, limit=100):
+                        total += 1
+                        if not msg.text: continue
+                        for c in CODE_RE.findall(msg.text):
+                            if c not in codes: codes.append(c)
+                    print(f"[watcher] backfill: {total} msg, {len(codes)} codes")
+                    for c in codes:
+                        if any(not storage.is_code_used(c, a["id"]) for a in storage.list_accounts()):
+                            await asyncio.to_thread(process_code, c)
+
+                    # Real-time listen
+                    @client.on(events.NewMessage(chats=bot))
+                    async def on_new(ev):
+                        for c in CODE_RE.findall(ev.message.text or ""):
+                            print(f"[watcher] NEW {c}")
+                            await asyncio.to_thread(process_code, c)
+
+                    print("[watcher] listening...")
+                    await client.disconnected
+                    await client.disconnect()
+                except Exception as e:
+                    print(f"[watcher] err: {e}")
+                    await asyncio.sleep(60)
+
+        loop.run_until_complete(_watch())
+
+    import threading
     threading.Thread(target=run, daemon=True).start()
+
+
+
 
 def process_code(code):
     all_accs = storage.list_accounts()
@@ -805,3 +836,4 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     return app
+
