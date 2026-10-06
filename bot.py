@@ -691,7 +691,7 @@ def start_worker(aid):
                         if fresh:
                             idata = fresh
                             storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))
-                        t = ad_todo[0]
+                        t = max(ad_todo, key=lambda x: (x.get("target") or 10) - (x.get("progress") or 0))
                         title = t.get("title", "ad")
                         prog = t.get("progress") or 0
                         target = t.get("target") or 10
@@ -906,4 +906,5 @@ def build_app():
     app.add_handler(CallbackQueryHandler(cb_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     return app
+
 
