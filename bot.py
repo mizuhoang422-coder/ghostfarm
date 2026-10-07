@@ -691,7 +691,9 @@ def start_worker(aid):
                         fresh = fetch_initdata_sync(a["session"])
                         if fresh:
                             idata = fresh
-                            storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))                        # Round-robin: xoay vong theo index, khong lap 1 task
+                            storage.update_account(aid, init_data=fresh, init_ts=int(time.time()))
+                        # Round-robin: xoay vong theo index
+
                         rr_key = f"_rr_{aid}"
                         rr_idx = getattr(__import__("bot"), rr_key, 0) if hasattr(__import__("bot"), rr_key) else 0
                         t = ad_todo[rr_idx % len(ad_todo)]
@@ -704,12 +706,13 @@ def start_worker(aid):
                         import os as _os
                         if _os.environ.get("ENABLE_AD_WATCH", "0") != "1":
                             st_set(aid, "ads_now", "⏭️ Auto-ad tắt (IP Render block)")
-                            break
-                        import os as _os
-                        if _os.environ.get("ENABLE_AD_WATCH", "0") != "1":
-                            st_set(aid, "ads_now", "⏭️ Auto-ad tắt (IP Render block)")
-                            break
-                        res = watch_one_ad(idata, log=lambda m: storage.log_activity(aid, f"ad {m}"), max_wait=90, task_name=title)
+                            skip_ad = True
+                        else:
+                            skip_ad = False
+                        if skip_ad:
+                            res = {"ok": False, "err": "disabled"}
+                        else:
+                            res = watch_one_ad(idata, log=lambda m: storage.log_activity(aid, f"ad {m}"), max_wait=90, task_name=title)
                         if res.get("ok"):
                             after = (res.get("progress_after") or {}).get(title, "?")
                             st_set(aid, "ads_now", f"✅ {title} {after}")
