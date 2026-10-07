@@ -54,7 +54,10 @@ class H(BaseHTTPRequestHandler):
                     logs.append("fetch_initdata FAIL")
                 else:
                     storage.update_account(a["id"], init_data=idata, init_ts=int(_t.time()))
-                    r = watch_one_ad(idata, log=log, max_wait=60, task_name="Adsgram")
+                    from urllib.parse import urlparse, parse_qs
+                    qs = parse_qs(urlparse(self.path).query)
+                    tname = qs.get("task", ["Adsgram"])[0]
+                    r = watch_one_ad(idata, log=log, max_wait=60, task_name=tname)
                     logs.append("RESULT: " + json.dumps(r, ensure_ascii=False, default=str))
             except Exception as e:
                 logs.append("ERR: " + str(e)[:200])
