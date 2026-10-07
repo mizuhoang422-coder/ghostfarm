@@ -70,3 +70,4 @@ if __name__ == "__main__":
     code_watcher_thread()
     print("[main] starting bot polling...")
     app.run_polling(allowed_updates=["message","callback_query"], drop_pending_updates=True)
+
