@@ -777,7 +777,7 @@ def resume_workers():
 
 # ============ WATCHER ============
 def code_watcher_thread():
-    """Async watcher — dung telethon async (khong .sync)."""
+    """Async watcher — telethon async thuan, process_code chay trong thread rieng."""
     def run():
         import asyncio
         from telethon import TelegramClient, events
@@ -787,22 +787,24 @@ def code_watcher_thread():
         asyncio.set_event_loop(loop)
 
         async def _watch():
-            time.sleep(20)
+            await asyncio.sleep(20)
             while True:
                 try:
                     accs = storage.list_accounts()
                     if not accs:
+                        print("[watcher] no acc")
                         await asyncio.sleep(60); continue
                     sess = accs[0]["session"]
-                    client = TelegramClient(StringSession(sess), API_ID, API_HASH)
+                    client = TelegramClient(StringSession(sess), API_ID, API_HASH, loop=loop)
                     await client.connect()
                     if not await client.is_user_authorized():
+                        print("[watcher] session dead")
                         await client.disconnect()
                         await asyncio.sleep(120); continue
                     bot = await client.get_entity("ghostfarmx_bot")
                     print("[watcher] connected")
 
-                    # Backfill 100 msg
+                    # Backfill 500 msg
                     codes = []
                     total = 0
                     async for msg in client.iter_messages(bot, limit=500):
@@ -810,20 +812,26 @@ def code_watcher_thread():
                         if not msg.text: continue
                         for c in CODE_RE.findall(msg.text):
                             if c not in codes: codes.append(c)
-                    print(f"[watcher] backfill: {total} msg, {len(codes)} codes")
+                    print(f"[watcher] backfill: {total} msg, {len(codes)} codes: {codes}")
+
+                    # Redeem code chua dung — chay trong thread rieng
                     for c in codes:
-                        if any(not storage.is_code_used(c, a["id"]) for a in storage.list_accounts()):
+                        need = any(not storage.is_code_used(c, a["id"]) for a in storage.list_accounts())
+                        if need:
                             await asyncio.to_thread(process_code, c)
 
                     # Real-time listen
                     @client.on(events.NewMessage(chats=bot))
                     async def on_new(ev):
-                        for c in CODE_RE.findall(ev.message.text or ""):
+                        txt = ev.message.text or ""
+                        found = CODE_RE.findall(txt)
+                        if not found: return
+                        for c in found:
                             print(f"[watcher] NEW {c}")
                             await asyncio.to_thread(process_code, c)
 
                     print("[watcher] listening...")
-                    await client.disconnected
+                    await client.run_until_disconnected()
                     await client.disconnect()
                 except Exception as e:
                     print(f"[watcher] err: {e}")
