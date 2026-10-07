@@ -701,6 +701,10 @@ def start_worker(aid):
                         target = t.get("target") or 10
                         st_set(aid, "ads_now", f"🎬 {title} {prog}/{target}")
                         storage.log_activity(aid, f"ad start {title} {prog}/{target}")
+                        import os as _os
+                        if _os.environ.get("ENABLE_AD_WATCH", "0") != "1":
+                            st_set(aid, "ads_now", "⏭️ Auto-ad tắt (IP Render block)")
+                            break
                         res = watch_one_ad(idata, log=lambda m: storage.log_activity(aid, f"ad {m}"), max_wait=90, task_name=title)
                         if res.get("ok"):
                             after = (res.get("progress_after") or {}).get(title, "?")
