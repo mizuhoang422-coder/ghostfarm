@@ -777,7 +777,7 @@ def resume_workers():
 
 # ============ WATCHER ============
 def code_watcher_thread():
-    """Async watcher — telethon async thuan, process_code chay trong thread rieng."""
+    """Async watcher — listen @ghostfarmx_bot + @GhostFarmNews."""
     def run():
         import asyncio
         from telethon import TelegramClient, events
@@ -785,6 +785,8 @@ def code_watcher_thread():
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+
+        SOURCES = ["ghostfarmx_bot", "GhostFarmNews"]
 
         async def _watch():
             await asyncio.sleep(20)
@@ -801,36 +803,65 @@ def code_watcher_thread():
                         print("[watcher] session dead")
                         await client.disconnect()
                         await asyncio.sleep(120); continue
-                    bot = await client.get_entity("ghostfarmx_bot")
-                    print("[watcher] connected")
 
-                    # Backfill 500 msg
+                    # Resolve tat ca source
+                    entities = []
+                    for s in SOURCES:
+                        try:
+                            e = await client.get_entity(s)
+                            entities.append(e)
+                            print(f"[watcher] source OK: @{s}")
+                        except Exception as ex:
+                            print(f"[watcher] source FAIL @{s}: {ex}")
+
+                    if not entities:
+                        print("[watcher] no source — wait 120s")
+                        await client.disconnect()
+                        await asyncio.sleep(120); continue
+
+                    # Backfill 500 msg tu moi source
                     codes = []
-                    total = 0
-                    async for msg in client.iter_messages(bot, limit=500):
-                        total += 1
-                        if not msg.text: continue
-                        for c in CODE_RE.findall(msg.text):
-                            if c not in codes: codes.append(c)
-                    print(f"[watcher] backfill: {total} msg, {len(codes)} codes: {codes}")
+                    for ent in entities:
+                        total = 0
+                        async for msg in client.iter_messages(ent, limit=500):
+                            total += 1
+                            if not msg.text: continue
+                            for c in CODE_RE.findall(msg.text):
+                                if c not in codes: codes.append(c)
+                        print(f"[watcher] backfill @{getattr(ent,'username','?')}: {total} msg")
+                    print(f"[watcher] total codes: {codes}")
 
-                    # Redeem code chua dung — chay trong thread rieng
+                    # Redeem code chua dung
                     for c in codes:
                         need = any(not storage.is_code_used(c, a["id"]) for a in storage.list_accounts())
                         if need:
                             await asyncio.to_thread(process_code, c)
 
-                    # Real-time listen
-                    @client.on(events.NewMessage(chats=bot))
+                    # Real-time listen tren tat ca source
+                    @client.on(events.NewMessage(chats=entities))
                     async def on_new(ev):
                         txt = ev.message.text or ""
                         found = CODE_RE.findall(txt)
                         if not found: return
+                        chat = await ev.get_chat()
+                        uname = getattr(chat, "username", "?")
                         for c in found:
-                            print(f"[watcher] NEW {c}")
+                            print(f"[watcher] NEW {c} from @{uname}")
                             await asyncio.to_thread(process_code, c)
 
-                    print("[watcher] listening...")
+                    # Edit message (mot so kenh edit thay vi post moi)
+                    @client.on(events.MessageEdited(chats=entities))
+                    async def on_edit(ev):
+                        txt = ev.message.text or ""
+                        found = CODE_RE.findall(txt)
+                        if not found: return
+                        chat = await ev.get_chat()
+                        uname = getattr(chat, "username", "?")
+                        for c in found:
+                            print(f"[watcher] EDIT {c} from @{uname}")
+                            await asyncio.to_thread(process_code, c)
+
+                    print(f"[watcher] listening {len(entities)} source...")
                     await client.run_until_disconnected()
                     await client.disconnect()
                 except Exception as e:
