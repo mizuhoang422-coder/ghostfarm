@@ -837,26 +837,58 @@ def code_watcher_thread():
                         if need:
                             await asyncio.to_thread(process_code, c)
 
-                    # Real-time listen tren tat ca source
-                    @client.on(events.NewMessage(chats=entities))
+                    # Build set chat_id de filter
+                    source_ids = set()
+                    for e in entities:
+                        try: source_ids.add(e.id)
+                        except: pass
+                    # Also username set
+                    source_unames = set()
+                    for s in SOURCES:
+                        source_unames.add(s.lower().lstrip("@"))
+
+                    def _is_source(ev):
+                        """Check event tu source khong."""
+                        try:
+                            cid = ev.chat_id
+                            if cid in source_ids: return True
+                            # peer channel id format
+                            if hasattr(ev.message, "peer_id"):
+                                pid = ev.message.peer_id
+                                if hasattr(pid, "channel_id") and pid.channel_id in source_ids:
+                                    return True
+                                if hasattr(pid, "user_id") and pid.user_id in source_ids:
+                                    return True
+                        except: pass
+                        return False
+
+                    async def _get_uname(ev):
+                        try:
+                            c = await ev.get_chat()
+                            return getattr(c, "username", "?") or "?"
+                        except: return "?"
+
+                    # Listen MOI message — tu filter
+                    @client.on(events.NewMessage())
                     async def on_new(ev):
+                        if not _is_source(ev): return
                         txt = ev.message.text or ""
+                        if not txt: return
                         found = CODE_RE.findall(txt)
                         if not found: return
-                        chat = await ev.get_chat()
-                        uname = getattr(chat, "username", "?")
+                        uname = await _get_uname(ev)
                         for c in found:
                             print(f"[watcher] NEW {c} from @{uname}")
                             await asyncio.to_thread(process_code, c)
 
-                    # Edit message (mot so kenh edit thay vi post moi)
-                    @client.on(events.MessageEdited(chats=entities))
+                    @client.on(events.MessageEdited())
                     async def on_edit(ev):
+                        if not _is_source(ev): return
                         txt = ev.message.text or ""
+                        if not txt: return
                         found = CODE_RE.findall(txt)
                         if not found: return
-                        chat = await ev.get_chat()
-                        uname = getattr(chat, "username", "?")
+                        uname = await _get_uname(ev)
                         for c in found:
                             print(f"[watcher] EDIT {c} from @{uname}")
                             await asyncio.to_thread(process_code, c)
